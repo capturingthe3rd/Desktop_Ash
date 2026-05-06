@@ -227,6 +227,18 @@ function spawnBubble(agent: string | null, message: string): void {
 // ── Wire-up ─────────────────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
+  // Block default browser context menu on the overlay window — without this,
+  // right-clicking the drag region triggers Electron/macOS default behavior
+  // that can close or hide the frameless transparent window.
+  // Bubbles get their own contextmenu handlers (for dismiss) which still fire
+  // because addEventListener handlers run before this preventDefault wins.
+  document.addEventListener("contextmenu", (e) => {
+    const target = e.target as HTMLElement | null;
+    if (!target?.closest(".bubble")) {
+      e.preventDefault();
+    }
+  });
+
   const spritesheetPath = await window.ash.getSpritesheetPath();
   if (!spritesheetPath) {
     console.warn("[renderer] no spritesheet path available");
