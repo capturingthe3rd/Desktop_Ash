@@ -50,14 +50,16 @@
       }
 
       #pet {
-        width: 100%;
+        /* Height-locked + aspect-ratio gives the correct sprite shape (192:208).
+           Width is derived; pet-area centers it horizontally. Without this, the
+           sprite would overflow downward when window width > sprite width
+           (which happens when the window is widened to fit bubble min-width). */
         height: 100%;
-        max-width: 100%;
+        aspect-ratio: 192 / 208;
         background-repeat: no-repeat;
         background-size: 800% 900%;
         image-rendering: pixelated;
         image-rendering: crisp-edges;
-        aspect-ratio: 192 / 208;
       }
 
       .bubble {
