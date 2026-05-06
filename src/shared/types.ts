@@ -94,4 +94,10 @@ export const IPC = {
   PET_SELECT: "pet:select",            // renderer → main (invoke): string (petId)
   SPRITESHEET_PATH: "pet:spritesheet", // renderer → main (invoke): string (abs path)
   BUBBLE_CLICK: "bubble:click",        // renderer → main (send): { agent: string }
+  // Phase 9 — settings + login item IPC
+  SETTINGS_GET: "settings:get",            // renderer → main (invoke): AppConfig
+  SETTINGS_SAVE: "settings:save",          // renderer → main (invoke): Partial<AppConfig>
+  SETTINGS_GET_DISPLAY_ID: "settings:display-id", // renderer → main (invoke): string
+  LOGIN_GET: "login:get",                  // renderer → main (invoke): boolean
+  LOGIN_SET: "login:set",                  // renderer → main (invoke): boolean
 } as const;

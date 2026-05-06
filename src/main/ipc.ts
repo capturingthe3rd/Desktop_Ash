@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from "electron";
+import { ipcMain, BrowserWindow, app } from "electron";
 import { IPC } from "../shared/types.js";
 import { scanPets, resolveSpritesheetPath } from "./pet-scanner.js";
 import { loadConfig, saveConfig } from "./config.js";
@@ -31,6 +31,22 @@ export function registerIpcHandlers(): void {
     if (!pet) return null;
 
     return resolveSpritesheetPath(pet.id, pet.spritesheetPath);
+  });
+
+  // Settings: return current full config to the settings window
+  ipcMain.handle(IPC.SETTINGS_GET, () => {
+    return loadConfig();
+  });
+
+  // Login item: read current state
+  ipcMain.handle(IPC.LOGIN_GET, () => {
+    return app.getLoginItemSettings().openAtLogin;
+  });
+
+  // Login item: set and return new state
+  ipcMain.handle(IPC.LOGIN_SET, (_event, openAtLogin: boolean) => {
+    app.setLoginItemSettings({ openAtLogin, openAsHidden: false });
+    return app.getLoginItemSettings().openAtLogin;
   });
 }
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net, ipcMain, screen } from "electron";
+import { app, BrowserWindow, protocol, net, ipcMain, screen, Menu } from "electron";
 import { exec } from "child_process";
 import path from "path";
 import { loadConfig, saveConfig } from "./config.js";
@@ -10,12 +10,21 @@ import * as codexBridge from "../codex-bridge/index.js";
 import { startWanderManager } from "./wander.js";
 import type { WanderHandle } from "./wander.js";
 import { IPC } from "../shared/types.js";
-import type { PetManifest } from "../shared/types.js";
+import type { PetManifest, AppConfig } from "../shared/types.js";
+import { startTray } from "./tray.js";
 
 // Force userData dir to match plan-specified path (~/Library/Application Support/Desktop_Ash).
 // Without this, Electron uses package.json `name` (lowercase "desktop_ash" — npm requires lowercase).
 // Must run before any app.getPath("userData") call (config.ts uses lazy getter so this is fine).
 app.setName("Desktop_Ash");
+
+// Disable the global application menu. We use a tray for all user actions, and
+// keeping a native app menu around triggers a Chromium/macOS event-dispatch path
+// that segfaults on right-click of the transparent overlay (Electron 42 + macOS
+// 26.3 — confirmed via crash report: NSEvent processing → null deref in
+// _updateCanQuitQuietlyAndSafely → CrBrowserMain segfault). Removing the menu
+// avoids the crashing code path entirely.
+Menu.setApplicationMenu(null);
 
 // Singleton: only one Desktop Ash window allowed
 const gotLock = app.requestSingleInstanceLock();
@@ -26,7 +35,14 @@ if (!gotLock) {
 
 let overlayWin: BrowserWindow | null = null;
 let pickerWin: BrowserWindow | null = null;
+let settingsWin: BrowserWindow | null = null;
 let wanderHandle: WanderHandle | null = null;
+
+// True only when user has explicitly chosen to quit (tray Quit, Cmd+Q).
+// The overlay window's close handler reads this to decide hide vs. destroy.
+// Without this flag, accidental close paths (right-click → Close, native macOS
+// window-menu Close) would destroy Ash and leave the user stranded.
+let isQuitting = false;
 
 // Reserved pixel height above the sprite for speech bubbles. Constant — window
 // is sized once at startup to include this area; no dynamic resize needed.
@@ -82,6 +98,47 @@ function createPickerWindow(): BrowserWindow {
   });
 
   return win;
+}
+
+function createSettingsWindow(): BrowserWindow {
+  // Singleton — only one settings window at a time. Caller checks settingsWin first.
+  const win = new BrowserWindow({
+    width: 480,
+    height: 520,
+    resizable: false,
+    center: true,
+    title: "Desktop Ash — Settings",
+    webPreferences: {
+      preload: path.join(__dirname, "../renderer/preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  const rendererDist = path.join(app.getAppPath(), "dist/renderer");
+  win.loadFile(path.join(rendererDist, "settings.html"));
+
+  win.on("closed", () => {
+    settingsWin = null;
+  });
+
+  return win;
+}
+
+function openSettings(): void {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    settingsWin.focus();
+    return;
+  }
+  settingsWin = createSettingsWindow();
+}
+
+function openPicker(): void {
+  if (pickerWin && !pickerWin.isDestroyed()) {
+    pickerWin.focus();
+    return;
+  }
+  pickerWin = createPickerWindow();
 }
 
 // Scale clamps — keep Ash visible but not absurd.
@@ -244,6 +301,18 @@ function createOverlayWindow(): BrowserWindow {
     console.log(`[main] scale ${current} → ${next} on display ${id}`);
   });
 
+  // Intercept ALL close attempts on the overlay (right-click → Close, macOS
+  // window menu, Cmd+W if the renderer ever wired one). Hide instead so the
+  // user can re-show via tray. Only when isQuitting is set (tray Quit / Cmd+Q)
+  // do we let the close go through normally.
+  win.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win.hide();
+      console.log("[main] overlay close intercepted → hidden (use tray to re-show)");
+    }
+  });
+
   win.on("closed", () => {
     if (moveDebounce !== null) clearTimeout(moveDebounce);
     overlayWin = null;
@@ -269,6 +338,13 @@ function openOverlay(): BrowserWindow {
 }
 
 // If a second instance is launched, focus the existing window
+// Set the "user is quitting" flag so the overlay close interceptor knows to let
+// the close go through. Tray Quit, Cmd+Q, and "Quit Desktop Ash" menu items
+// all flow through before-quit before destroying windows.
+app.on("before-quit", () => {
+  isQuitting = true;
+});
+
 app.on("second-instance", () => {
   const target = overlayWin ?? pickerWin;
   if (target && !target.isDestroyed()) {
@@ -336,6 +412,42 @@ app.whenReady().then(() => {
     return petId;
   });
 
+  // SETTINGS_SAVE: merge partial config into saved config, apply live changes where possible.
+  // Lives here (not ipc.ts) because applying wander changes requires wanderHandle reference.
+  ipcMain.handle(IPC.SETTINGS_SAVE, (_event, partial: Partial<AppConfig>) => {
+    const cfg = loadConfig();
+    const next: AppConfig = { ...cfg, ...partial };
+    saveConfig(next);
+
+    // Apply wander changes immediately without restart
+    if (wanderHandle && (
+      partial.idleWanderEnabled !== undefined ||
+      partial.idleWanderDelayMs !== undefined ||
+      partial.idleWanderSpeedPxPerSec !== undefined
+    )) {
+      // Restart wander manager with new config by stopping then signalling idle.
+      // The manager reads loadConfig() on construction — saveConfig above already wrote it.
+      // We re-use the existing wanderHandle's stop + bootstrap approach:
+      // stop cancels all timers; on the next idle the queue will rearm it.
+      // Full restart would need openOverlay — simpler to just stop + let idle rearm.
+      wanderHandle.stop();
+      // If idleWanderEnabled was just disabled, leave stopped. Otherwise re-arm.
+      if (next.idleWanderEnabled !== false) {
+        wanderHandle.resume();
+      }
+    }
+
+    return next;
+  });
+
+  // SETTINGS_GET_DISPLAY_ID: returns the display ID the overlay window is currently on.
+  // Settings UI shows this so user knows which display's scale they're editing.
+  ipcMain.handle(IPC.SETTINGS_GET_DISPLAY_ID, () => {
+    if (!overlayWin || overlayWin.isDestroyed()) return null;
+    const display = screen.getDisplayMatching(overlayWin.getBounds());
+    return String(display.id);
+  });
+
   // Start HTTP server
   createServer(queue);
 
@@ -374,6 +486,15 @@ app.whenReady().then(() => {
       pickerWin = createPickerWindow();
     }
   }
+
+  // Start the menubar tray icon. Must be created after app is ready (Tray API requires it).
+  // Deps use closures over module-level vars so the menu always reflects current state.
+  startTray({
+    overlayWin: () => overlayWin,
+    wanderHandle: () => wanderHandle,
+    openSettings,
+    openPicker,
+  });
 });
 
 // Stop the Codex bridge + wander manager before the process exits

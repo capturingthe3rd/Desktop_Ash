@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         index: path.resolve(__dirname, "src/renderer/index.html"),
         picker: path.resolve(__dirname, "src/renderer/picker.html"),
+        settings: path.resolve(__dirname, "src/renderer/settings.html"),
       },
     },
   },

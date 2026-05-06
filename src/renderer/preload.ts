@@ -9,6 +9,12 @@ const IPC = {
   PET_SELECT: "pet:select",
   SPRITESHEET_PATH: "pet:spritesheet",
   BUBBLE_CLICK: "bubble:click",
+  // Phase 9 — settings + login item
+  SETTINGS_GET: "settings:get",
+  SETTINGS_SAVE: "settings:save",
+  SETTINGS_GET_DISPLAY_ID: "settings:display-id",
+  LOGIN_GET: "login:get",
+  LOGIN_SET: "login:set",
 } as const;
 
 interface StateUpdatePayload {
@@ -31,4 +37,10 @@ contextBridge.exposeInMainWorld("ash", {
   clickBubble: (agent: string | null) => {
     ipcRenderer.send(IPC.BUBBLE_CLICK, { agent });
   },
+  // Phase 9 settings window APIs
+  getSettings: (): Promise<unknown> => ipcRenderer.invoke(IPC.SETTINGS_GET),
+  saveSettings: (partial: unknown): Promise<unknown> => ipcRenderer.invoke(IPC.SETTINGS_SAVE, partial),
+  getCurrentDisplayId: (): Promise<string | null> => ipcRenderer.invoke(IPC.SETTINGS_GET_DISPLAY_ID),
+  getOpenAtLogin: (): Promise<boolean> => ipcRenderer.invoke(IPC.LOGIN_GET),
+  setOpenAtLogin: (openAtLogin: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.LOGIN_SET, openAtLogin),
 });

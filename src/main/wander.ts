@@ -20,6 +20,14 @@ export interface WanderHandle {
   // Called by the main.ts move handler when isWandering() === false.
   // Signals a real user drag — cancel any armed timer that was running.
   notifyUserDrag(): void;
+  // Pause wander: cancels all timers/ticks and suppresses future arming until resumed.
+  // isWandering() returns false while paused. Does not corrupt session counters.
+  pause(): void;
+  // Resume wander: re-enables arming. Does not restart a walk immediately — waits
+  // for the next idle state transition to arm naturally.
+  resume(): void;
+  // True when wander is currently paused (not stopped — can be resumed).
+  isPaused(): boolean;
   // Cleanup on app quit.
   stop(): void;
 }
@@ -37,6 +45,12 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
 
   // Target the window is currently walking toward (walking phase only).
   let target: { x: number; y: number } | null = null;
+
+  // Last facing direction (running-left or running-right). Persisted across walks
+  // so that purely-vertical or near-vertical moves don't flip Ash's facing on a
+  // tiny |dx|. Without this, a target straight above with |dx|=3 would render
+  // running-left or running-right based on noise — visually jarring.
+  let lastDirection: "running-right" | "running-left" = "running-right";
 
   // Set true when wander gets interrupted by a real state push. The next walk
   // will target the user's saved home position for the current display rather
@@ -201,9 +215,23 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
 
     const bounds = win.getBounds();
     // Target coords are sprite-center (from pickTarget / homeTargetForCurrentDisplay).
-    // Direction is determined by X only — sprite center X == window center X.
     const dx = target.x - (bounds.x + bounds.width / 2);
-    const direction: PetState = dx >= 0 ? "running-right" : "running-left";
+    const spriteHForDir = bounds.height - BUBBLE_AREA_HEIGHT;
+    const dy = target.y - (bounds.y + BUBBLE_AREA_HEIGHT + spriteHForDir / 2);
+    // Smarter direction: when the move is mostly vertical (|dx| small relative to
+    // |dy|), keep the previous facing rather than flipping on a tiny dx. This
+    // stops Ash from doing a confusing left-right flip when targets are stacked
+    // mostly above or below each other. Override prior facing only when |dx| is
+    // both meaningful (≥40px) AND a significant fraction of |dy| (≥40%).
+    let direction: PetState;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    if (absDx >= 40 && absDx >= absDy * 0.4) {
+      direction = dx >= 0 ? "running-right" : "running-left";
+      lastDirection = direction;
+    } else {
+      direction = lastDirection;
+    }
 
     // TTL long enough to cover the walk. 150 px/s over a 2000px display ~= 13s max.
     // 20 seconds is a safe ceiling without being so long it blooms the queue log.
@@ -343,16 +371,26 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
   }
 
   // ------------------------------------------------------------------
+  // Pause/resume state — separate from wander phase so pausing does
+  // not corrupt session counters. When paused, notifyStateChange
+  // suppresses arming; resume re-enables it without jumping ahead.
+  // ------------------------------------------------------------------
+  let paused = false;
+
+  // ------------------------------------------------------------------
   // Public handle
   // ------------------------------------------------------------------
 
   const handle: WanderHandle = {
     isWandering(): boolean {
+      // Report false while paused — move handler uses this to decide
+      // whether to save position. We want position saved while paused.
+      if (paused) return false;
       return phase === "walking" || phase === "resting";
     },
 
     notifyStateChange(state: PetState, agent: string | null): void {
-      if (!enabled) return;
+      if (!enabled || paused) return;
 
       // Ignore wander's own pushes — they would otherwise self-cancel us mid-walk
       // (e.g. when we push running-right while phase is still "armed" before we
@@ -408,6 +446,31 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
       if (phase === "armed") {
         enterDormant("user drag while armed");
       }
+    },
+
+    pause(): void {
+      if (paused) return;
+      paused = true;
+      // Cancel all active timers/ticks so Ash stops mid-session cleanly.
+      // Session counters are intentionally preserved — resume picks up where
+      // we left off (home-return logic still works after unpausing).
+      enterDormant("wander paused by user");
+      console.log("[wander] paused");
+    },
+
+    resume(): void {
+      if (!paused) return;
+      paused = false;
+      console.log("[wander] resumed");
+      // Re-arm naturally: if the queue is currently idle, arm now.
+      // Otherwise the next idle state transition will arm via notifyStateChange.
+      if (queue.getCurrent().state === "idle" && phase === "dormant") {
+        handle.notifyStateChange("idle", null);
+      }
+    },
+
+    isPaused(): boolean {
+      return paused;
     },
 
     stop(): void {

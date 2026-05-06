@@ -21,8 +21,11 @@
       body {
         display: flex;
         flex-direction: column;
-        /* Body itself is the drag handle (overridden per-element via no-drag) */
-        -webkit-app-region: drag;
+        /* IMPORTANT: do NOT make the body itself a drag region. The bubble-stack
+           area (top 280px) is transparent when empty; a body-level drag region
+           would let macOS treat right-clicks on that empty area as title-bar
+           gestures, which crashes the transparent always-on-top window with
+           SIGSEGV in Electron 42. Drag is scoped to the visible sprite area. */
       }
 
       /* Top reserved 280px holds stacked bubbles. Transparent + click-pass-through

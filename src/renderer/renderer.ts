@@ -227,11 +227,22 @@ function spawnBubble(agent: string | null, message: string): void {
 // ── Wire-up ─────────────────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
-  // Block default browser context menu on the overlay window — without this,
-  // right-clicking the drag region triggers Electron/macOS default behavior
-  // that can close or hide the frameless transparent window.
-  // Bubbles get their own contextmenu handlers (for dismiss) which still fire
-  // because addEventListener handlers run before this preventDefault wins.
+  // Defense in depth against right-click crashing the transparent overlay:
+  //   1) capture mousedown for right button BEFORE anything else can dispatch it
+  //   2) preventDefault on contextmenu (Chromium's browser menu)
+  //   3) main process intercepts close events to hide instead of destroy
+  // Bubbles still get their own contextmenu handler for right-click dismiss
+  // because addEventListener handlers run before this top-level preventDefault.
+  document.addEventListener("mousedown", (e) => {
+    if (e.button === 2) {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest(".bubble")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    }
+  }, true /* useCapture — fire before any other handler */);
+
   document.addEventListener("contextmenu", (e) => {
     const target = e.target as HTMLElement | null;
     if (!target?.closest(".bubble")) {

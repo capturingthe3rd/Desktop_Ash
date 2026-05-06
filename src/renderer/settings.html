@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Desktop Ash · Settings</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #1c1c1e;
+        color: #e0e0e0;
+        padding: 24px 28px;
+        font-size: 13px;
+      }
+      h1 { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+      .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+
+      .section {
+        background: #2a2a2c;
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+      }
+      .section h2 {
+        font-size: 12px;
+        font-weight: 600;
+        color: #fff;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 10px;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 0;
+        gap: 16px;
+      }
+      .row + .row { border-top: 1px solid #38383a; }
+      .row label { flex: 1; color: #cfcfd1; }
+      .row .control { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+      .row .value { font-variant-numeric: tabular-nums; color: #888; min-width: 60px; text-align: right; font-size: 12px; }
+
+      input[type="range"] { width: 160px; }
+      input[type="checkbox"] {
+        width: 36px;
+        height: 22px;
+        appearance: none;
+        background: #444;
+        border-radius: 11px;
+        position: relative;
+        cursor: pointer;
+        transition: background 150ms;
+      }
+      input[type="checkbox"]:checked { background: #34c759; }
+      input[type="checkbox"]::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 150ms;
+      }
+      input[type="checkbox"]:checked::before { transform: translateX(14px); }
+
+      select {
+        background: #38383a;
+        color: #fff;
+        border: 1px solid #48484a;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 13px;
+      }
+
+      .note {
+        font-size: 11px;
+        color: #888;
+        font-style: italic;
+        margin-top: 6px;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      button {
+        padding: 8px 18px;
+        border-radius: 6px;
+        border: 0;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .btn-cancel { background: #48484a; color: #fff; }
+      .btn-apply  { background: #0a84ff; color: #fff; }
+      .btn-cancel:hover { filter: brightness(1.15); }
+      .btn-apply:hover  { filter: brightness(1.1); }
+
+      .status {
+        font-size: 12px;
+        color: #34c759;
+        margin-top: 8px;
+        min-height: 16px;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Desktop Ash Settings</h1>
+    <p class="subtitle">Live config at <code>~/Library/Application Support/Desktop_Ash/config.json</code></p>
+
+    <div class="section">
+      <h2>Pet</h2>
+      <div class="row">
+        <label for="pet-select">Selected pet</label>
+        <div class="control"><select id="pet-select"></select></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Overlay</h2>
+      <div class="row">
+        <label for="scale">Scale on current display (<span id="display-id">?</span>)</label>
+        <div class="control">
+          <input type="range" id="scale" min="0.5" max="5" step="0.25" />
+          <span class="value" id="scale-value">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Idle Wander</h2>
+      <div class="row">
+        <label for="wander-enabled">Enable wander</label>
+        <div class="control"><input type="checkbox" id="wander-enabled" /></div>
+      </div>
+      <div class="row">
+        <label for="wander-delay">Delay before wander (seconds)</label>
+        <div class="control">
+          <input type="range" id="wander-delay" min="10" max="300" step="5" />
+          <span class="value" id="wander-delay-value">—</span>
+        </div>
+      </div>
+      <div class="row">
+        <label for="wander-speed">Walk speed (px/sec)</label>
+        <div class="control">
+          <input type="range" id="wander-speed" min="50" max="400" step="25" />
+          <span class="value" id="wander-speed-value">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Speech Bubbles</h2>
+      <div class="row">
+        <label for="bubble-enabled">Enable bubbles</label>
+        <div class="control"><input type="checkbox" id="bubble-enabled" /></div>
+      </div>
+      <div class="row">
+        <label for="bubble-lifetime">Bubble lifetime (seconds)</label>
+        <div class="control">
+          <input type="range" id="bubble-lifetime" min="3" max="30" step="1" />
+          <span class="value" id="bubble-lifetime-value">—</span>
+        </div>
+      </div>
+      <div class="row">
+        <label for="bubble-stack">Max stacked bubbles</label>
+        <div class="control">
+          <input type="range" id="bubble-stack" min="1" max="10" step="1" />
+          <span class="value" id="bubble-stack-value">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Codex Bridge</h2>
+      <div class="row">
+        <label for="codex-enabled">Enable Codex Desktop bridge</label>
+        <div class="control"><input type="checkbox" id="codex-enabled" /></div>
+      </div>
+      <p class="note">Restart Desktop Ash for Codex bridge changes to take effect.</p>
+    </div>
+
+    <div class="section">
+      <h2>Startup</h2>
+      <div class="row">
+        <label for="login-enabled">Open at login</label>
+        <div class="control"><input type="checkbox" id="login-enabled" /></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-cancel" id="btn-cancel">Cancel</button>
+      <button class="btn-apply" id="btn-apply">Apply</button>
+    </div>
+    <p class="status" id="status"></p>
+
+    <script type="module" src="./settings.ts"></script>
+  </body>
+</html>
