@@ -21,14 +21,30 @@ const DEFAULT_TTL_MS: Record<PetState, number | null> = {
   waiting: 3000,
 };
 
+// Subscribers receive both the state and the agent label so they can filter
+// their own pushes (e.g. wander manager ignoring its own running-left pushes).
+type StateChangeCallback = (state: PetState, agent: string | null) => void;
+
 export class StateQueue {
   private current: QueueEntry;
   private decayTimer: ReturnType<typeof setTimeout> | null = null;
-  private onStateChange: (state: PetState) => void;
+  // Multiple subscribers share the same state-change event. Two concrete
+  // subscribers exist: (1) renderer broadcast in main.ts, (2) wander manager.
+  // That's n=2 — enough to justify a subscribe/unsubscribe surface over a
+  // single constructor callback.
+  private subscribers: Set<StateChangeCallback> = new Set();
 
-  constructor(onStateChange: (state: PetState) => void) {
-    this.onStateChange = onStateChange;
+  constructor(initialSubscriber: StateChangeCallback) {
+    this.subscribers.add(initialSubscriber);
     this.current = this.makeIdleEntry();
+  }
+
+  // Subscribe to state-change events. Returns an unsubscribe function.
+  subscribe(callback: StateChangeCallback): () => void {
+    this.subscribers.add(callback);
+    return () => {
+      this.subscribers.delete(callback);
+    };
   }
 
   private makeIdleEntry(): QueueEntry {
@@ -70,15 +86,21 @@ export class StateQueue {
       }, rawTtl as number);
     }
 
-    this.onStateChange(state);
+    this.notifyAll(state, agent);
     console.log(`[state-queue] → ${state} (agent=${agent ?? "anon"}, ttl=${rawTtl ?? "∞"}ms, priority=${priority})`);
   }
 
   private decayToIdle(): void {
     this.current = this.makeIdleEntry();
     this.decayTimer = null;
-    this.onStateChange("idle");
+    this.notifyAll("idle", null);
     console.log("[state-queue] → idle (TTL expired)");
+  }
+
+  private notifyAll(state: PetState, agent: string | null): void {
+    for (const cb of this.subscribers) {
+      cb(state, agent);
+    }
   }
 
   getCurrent(): QueueEntry {
@@ -89,5 +111,6 @@ export class StateQueue {
     if (this.decayTimer !== null) {
       clearTimeout(this.decayTimer);
     }
+    this.subscribers.clear();
   }
 }

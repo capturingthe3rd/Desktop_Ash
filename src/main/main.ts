@@ -6,6 +6,8 @@ import { StateQueue } from "./state-queue.js";
 import { createServer } from "./server.js";
 import { registerIpcHandlers, broadcastState } from "./ipc.js";
 import * as codexBridge from "../codex-bridge/index.js";
+import { startWanderManager } from "./wander.js";
+import type { WanderHandle } from "./wander.js";
 import { IPC } from "../shared/types.js";
 import type { PetManifest } from "../shared/types.js";
 
@@ -23,9 +25,11 @@ if (!gotLock) {
 
 let overlayWin: BrowserWindow | null = null;
 let pickerWin: BrowserWindow | null = null;
+let wanderHandle: WanderHandle | null = null;
 
-// State queue is instantiated here so server and IPC can share it
-const queue = new StateQueue((state) => {
+// State queue is instantiated here so server and IPC can share it.
+// Renderer broadcast subscriber ignores the agent label (only forwards state).
+const queue = new StateQueue((state, _agent) => {
   if (overlayWin && !overlayWin.isDestroyed()) {
     broadcastState(overlayWin, state);
   }
@@ -95,6 +99,20 @@ function saveScaleForDisplay(displayId: string, scale: number): void {
   saveConfig({ ...cfg, displayScales: next });
 }
 
+// Read the saved {x,y} position for a specific display id. Returns null if not yet saved.
+function boundsForDisplay(displayId: string): { x: number; y: number } | null {
+  const cfg = loadConfig();
+  return cfg.displayPositions?.[displayId] ?? null;
+}
+
+// Persist the current {x,y} position for a specific display id.
+function saveBoundsForDisplay(displayId: string, bounds: { x: number; y: number }): void {
+  const cfg = loadConfig();
+  const next = { ...(cfg.displayPositions ?? {}) };
+  next[displayId] = { x: bounds.x, y: bounds.y };
+  saveConfig({ ...cfg, displayPositions: next });
+}
+
 // Resize the overlay window in place, keeping it centered on its current position.
 function resizeOverlay(win: BrowserWindow, scale: number): void {
   const w = Math.round(192 * scale);
@@ -140,9 +158,23 @@ function createOverlayWindow(): BrowserWindow {
   win.loadFile(path.join(rendererDist, "index.html"));
 
   // Track which display the window is on so we can restore per-display scale
-  // when it crosses into a different monitor.
+  // and per-display position when it crosses into a different monitor.
   let lastDisplayId = String(display.id);
   let moveDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  // will-move fires only for manual user drag — NOT for programmatic setBounds.
+  // This is how we distinguish "Capt grabbed the pet" from "wander stepped the window."
+  // Calling notifyUserDrag here cancels any in-progress wander walk so the user
+  // can drag freely without wander fighting them.
+  // (If this proves to fire for setBounds in some Electron builds, we'd see wander
+  // self-cancel on every walk tick — easily spotted in /tmp/desktop_ash.log.)
+  win.on("will-move", () => {
+    if (wanderHandle?.isWandering()) {
+      console.log("[main] user drag detected (will-move) — yielding wander");
+      wanderHandle.notifyUserDrag();
+    }
+  });
+
   win.on("move", () => {
     if (moveDebounce !== null) clearTimeout(moveDebounce);
     moveDebounce = setTimeout(() => {
@@ -150,11 +182,27 @@ function createOverlayWindow(): BrowserWindow {
       if (win.isDestroyed()) return;
       const center = screen.getDisplayMatching(win.getBounds());
       const newId = String(center.id);
-      if (newId !== lastDisplayId) {
+
+      if (newId === lastDisplayId) {
+        // Same display — save position only when the user drove the move (not wander).
+        if (!(wanderHandle?.isWandering() ?? false)) {
+          saveBoundsForDisplay(newId, win.getBounds());
+          wanderHandle?.notifyUserDrag();
+        }
+      } else {
+        // Crossed to a new display — restore scale and saved position.
         lastDisplayId = newId;
         const newScale = scaleForDisplay(newId);
         resizeOverlay(win, newScale);
         console.log(`[main] crossed to display ${newId}, applied scale ${newScale}`);
+        const savedPos = boundsForDisplay(newId);
+        if (savedPos) {
+          const b = win.getBounds();
+          win.setBounds({ ...b, x: savedPos.x, y: savedPos.y });
+          console.log(`[main] restored position for display ${newId}: (${savedPos.x},${savedPos.y})`);
+        }
+        // Display crossing cancels any in-progress wander.
+        wanderHandle?.notifyUserDrag();
       }
     }, 150);
   });
@@ -187,6 +235,20 @@ function createOverlayWindow(): BrowserWindow {
     queue.destroy();
   });
 
+  return win;
+}
+
+// Open the overlay window AND wire the wander manager + state-queue subscription.
+// All overlay creation paths must go through here so wander stays consistent.
+function openOverlay(): BrowserWindow {
+  const win = createOverlayWindow();
+  wanderHandle = startWanderManager(win, queue);
+  const unsubscribe = queue.subscribe((state, agent) => wanderHandle?.notifyStateChange(state, agent));
+  win.on("closed", () => {
+    unsubscribe();
+    wanderHandle?.stop();
+    wanderHandle = null;
+  });
   return win;
 }
 
@@ -245,12 +307,12 @@ app.whenReady().then(() => {
     pickerWin.on("closed", () => {
       const freshConfig = loadConfig();
       if (freshConfig.selectedPetId) {
-        overlayWin = createOverlayWindow();
+        overlayWin = openOverlay();
       }
     });
   } else {
     // Pet already selected: go straight to overlay
-    overlayWin = createOverlayWindow();
+    overlayWin = openOverlay();
   }
 
   // Verify the selected pet still exists (user may have deleted it)
@@ -267,9 +329,10 @@ app.whenReady().then(() => {
   }
 });
 
-// Stop the Codex bridge before the process exits
+// Stop the Codex bridge + wander manager before the process exits
 app.on("quit", () => {
   codexBridge.stop();
+  wanderHandle?.stop();
 });
 
 // Keep alive on macOS (standard convention: don't quit when all windows closed)
@@ -285,7 +348,7 @@ app.on("activate", () => {
   if (overlayWin === null && pickerWin === null) {
     const config = loadConfig();
     if (config.selectedPetId) {
-      overlayWin = createOverlayWindow();
+      overlayWin = openOverlay();
     } else {
       pickerWin = createPickerWindow();
     }

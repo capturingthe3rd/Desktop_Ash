@@ -13,6 +13,11 @@ const DEFAULT_CONFIG: AppConfig = {
   selectedPetId: null,
   // Bridge disabled by default. User opts in via config.json.
   codexBridgeEnabled: false,
+  idleWanderEnabled: true,
+  idleWanderDelayMs: 60000,
+  idleWanderSpeedPxPerSec: 150,
+  // displayPositions and displayScales intentionally absent — avoid
+  // empty-object noise in config.json before the first save.
 };
 
 export function loadConfig(): AppConfig {

@@ -72,6 +72,13 @@ export interface AppConfig {
   // When the window moves to a display, we resize to that display's saved scale.
   // Cmd+= / Cmd+- / Cmd+0 adjust the current display's scale and save here.
   displayScales?: Record<string, number>;
+  // Per-display position memory. Key is Electron display.id (number stringified).
+  // Saved on user-driven moves (not wander-driven). Restored when crossing displays.
+  displayPositions?: Record<string, { x: number; y: number }>;
+  // Wander feature flags
+  idleWanderEnabled?: boolean;
+  idleWanderDelayMs?: number;
+  idleWanderSpeedPxPerSec?: number;
 }
 
 // IPC channel names for main <-> renderer communication
