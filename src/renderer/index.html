@@ -64,7 +64,11 @@
 
       .bubble {
         position: relative;
-        max-width: 240px;
+        /* Wider bubble = fewer lines for the same message; reads more like a quick
+           thought than a stacked column. min-width keeps short messages from looking
+           like tags; max-width caps overly-long single-line bubbles. */
+        min-width: 180px;
+        max-width: 340px;
         padding: 10px 14px;
         border-radius: 12px;
         border: 2px solid;

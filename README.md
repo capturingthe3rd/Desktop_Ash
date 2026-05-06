@@ -106,7 +106,29 @@ State mapping suggestion:
 | PostToolUse | error result | failed |
 | Stop | — | jumping |
 
-A starter hook script lives at the example referenced in [`scripts/`](scripts/).
+**A ready-to-use hook script lives at [`scripts/claude-hooks/desktop_ash.sh`](scripts/claude-hooks/desktop_ash.sh).** To install:
+
+```bash
+cp scripts/claude-hooks/desktop_ash.sh ~/.claude/hooks/desktop_ash.sh
+chmod +x ~/.claude/hooks/desktop_ash.sh
+```
+
+Then add hook entries in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart":     [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/YOU/.claude/hooks/desktop_ash.sh"}]}],
+    "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/YOU/.claude/hooks/desktop_ash.sh"}]}],
+    "PreToolUse":       [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/YOU/.claude/hooks/desktop_ash.sh"}]}],
+    "PostToolUse":      [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/YOU/.claude/hooks/desktop_ash.sh"}]}],
+    "Stop":             [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/YOU/.claude/hooks/desktop_ash.sh"}]}],
+    "SubagentStop":     [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/YOU/.claude/hooks/desktop_ash.sh"}]}]
+  }
+}
+```
+
+The script throttles rapid PreToolUse / UserPromptSubmit events at 1500ms intervals so Ash doesn't flicker. Stop and PostToolUse-error always fire (no throttle).
 
 ## Driving Ash from Codex Desktop (opt-in)
 

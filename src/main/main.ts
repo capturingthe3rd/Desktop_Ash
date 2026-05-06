@@ -31,6 +31,10 @@ let wanderHandle: WanderHandle | null = null;
 // Reserved pixel height above the sprite for speech bubbles. Constant — window
 // is sized once at startup to include this area; no dynamic resize needed.
 const BUBBLE_AREA_HEIGHT = 280;
+// Minimum window width so bubbles get a wide reading area, not a tall narrow column.
+// Window is max(192*scale, BUBBLE_MIN_WIDTH) wide. At 0.75x scale (sprite=144px)
+// the window ends up 360px wide, sprite centered horizontally with transparent margins.
+const BUBBLE_MIN_WIDTH = 360;
 
 // State queue is instantiated here so server and IPC can share it.
 // Initial subscriber forwards all three args to the renderer.
@@ -123,7 +127,7 @@ function saveBoundsForDisplay(displayId: string, bounds: { x: number; y: number 
 // window.y + BUBBLE_AREA_HEIGHT + (208*scale)/2. We preserve that y coordinate.
 function resizeOverlay(win: BrowserWindow, scale: number): void {
   const spriteH = Math.round(208 * scale);
-  const w = Math.max(Math.round(192 * scale), 240);
+  const w = Math.max(Math.round(192 * scale), BUBBLE_MIN_WIDTH);
   const h = BUBBLE_AREA_HEIGHT + spriteH;
   const cur = win.getBounds();
   // Sprite center Y in screen coords (stays fixed across resize)
@@ -146,7 +150,7 @@ function createOverlayWindow(): BrowserWindow {
   const display = screen.getDisplayNearestPoint(cursor);
   const scale = scaleForDisplay(String(display.id));
   const win = new BrowserWindow({
-    width: Math.max(Math.round(192 * scale), 240),
+    width: Math.max(Math.round(192 * scale), BUBBLE_MIN_WIDTH),
     height: BUBBLE_AREA_HEIGHT + Math.round(208 * scale),
     transparent: true,
     frame: false,

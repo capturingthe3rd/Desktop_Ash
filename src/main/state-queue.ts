@@ -1,4 +1,5 @@
 import type { PetState } from "../shared/types.js";
+import { tidyMessage } from "../shared/message-tidy.js";
 
 interface QueueEntry {
   state: PetState;
@@ -76,12 +77,14 @@ export class StateQueue {
     const rawTtl = opts.ttlMs ?? DEFAULT_TTL_MS[state];
     const expiresAt = rawTtl !== null ? Date.now() + rawTtl : null;
 
-    // Truncate message at 200 chars with ellipsis
-    let message: string | null = opts.message ?? null;
-    if (typeof message === "string" && message.length > 200) {
-      message = message.slice(0, 199) + "…";
+    // Tidy then truncate. tidyMessage strips markdown noise and takes the first
+    // paragraph/sentence; the 200-char ceiling applies to the cleaned text so we
+    // don't waste budget on syntax characters like ** or # or ```.
+    let message: string | null = null;
+    if (typeof opts.message === "string" && opts.message.length > 0) {
+      const cleaned = tidyMessage(opts.message);
+      if (cleaned.length > 0) message = cleaned;
     }
-    if (message === "") message = null;
 
     this.current = { state, agent, priority, expiresAt, pushedAt: Date.now(), message };
 
