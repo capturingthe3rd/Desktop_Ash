@@ -1,0 +1,19 @@
+appId: com.capturingthe3rd.desktop-ash
+productName: Desktop Ash
+copyright: Copyright © 2026 Armando Gonzales III
+
+directories:
+  output: release
+
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  category: public.app-category.utilities
+  hardenedRuntime: true
+
+files:
+  - dist/**/*
+  - package.json
+  - "!node_modules/**/*"
+  - "!src/**/*"

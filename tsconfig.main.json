@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist/main",
+    "rootDir": "src",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/main/**/*", "src/codex-bridge/**/*", "src/renderer/preload.ts", "src/shared/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "desktop_ash",
+  "version": "0.1.0",
+  "description": "Standalone Electron pet overlay driven by localhost state pushes",
+  "main": "dist/main/main/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
+    "launch": "ELECTRON_RUN_AS_NODE= electron .",
+    "dev": "concurrently \"tsc -p tsconfig.main.json --watch\" \"vite\""
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "concurrently": "^9.1.2",
+    "electron": "^42.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  },
+  "build": {
+    "appId": "com.capturingthe3rd.desktop-ash",
+    "productName": "Desktop Ash",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities"
+    }
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0"
+  }
+}
