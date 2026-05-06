@@ -11,6 +11,20 @@ interface CodexEvent {
 export interface MappedPush {
   state: PetState;
   ttlMs: number;
+  // Optional speech-bubble message (Phase 8). Present on completion / error events.
+  message?: string;
+}
+
+// Truncate a Codex agent message for bubble display. Keeps the first line/sentence
+// so bubbles stay readable even when Codex writes paragraphs.
+function shortenForBubble(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  // Prefer first line if it has substance, otherwise first ~180 chars.
+  const firstLine = trimmed.split(/\r?\n/)[0]?.trim() ?? "";
+  const candidate = firstLine.length >= 20 ? firstLine : trimmed;
+  return candidate.length > 200 ? candidate.slice(0, 199) + "…" : candidate;
 }
 
 // Parse a raw JSONL line string into a CodexEvent, or null on failure.
@@ -57,17 +71,25 @@ export function mapEventToState(event: CodexEvent): MappedPush | null {
       case "task_started":
         return { state: "waiting", ttlMs: 3000 };
 
-      // task_complete = turn fully done → celebrate
-      case "task_complete":
-        return { state: "jumping", ttlMs: 1500 };
+      // task_complete = turn fully done → celebrate + bubble with last_agent_message
+      case "task_complete": {
+        const message = shortenForBubble(payload["last_agent_message"]);
+        return message
+          ? { state: "jumping", ttlMs: 1500, message }
+          : { state: "jumping", ttlMs: 1500 };
+      }
 
       // exec_command_end = shell command finished, model is processing result → keep running
       case "exec_command_end":
         return { state: "running", ttlMs: 3000 };
 
-      // error = session-level failure (auth, quota) → fail state
-      case "error":
-        return { state: "failed", ttlMs: 2500 };
+      // error = session-level failure (auth, quota) → fail state + bubble with reason
+      case "error": {
+        const message = shortenForBubble(payload["message"]);
+        return message
+          ? { state: "failed", ttlMs: 2500, message }
+          : { state: "failed", ttlMs: 2500 };
+      }
 
       // agent_message, user_message, token_count, thread_name_updated, turn_context, etc.
       // Too frequent or not meaningful for state mapping.

@@ -16,6 +16,9 @@ const DEFAULT_CONFIG: AppConfig = {
   idleWanderEnabled: true,
   idleWanderDelayMs: 60000,
   idleWanderSpeedPxPerSec: 150,
+  bubbleEnabled: true,
+  bubbleLifetimeMs: 10000,
+  bubbleMaxStack: 5,
   // displayPositions and displayScales intentionally absent — avoid
   // empty-object noise in config.json before the first save.
 };

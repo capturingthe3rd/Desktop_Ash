@@ -3,6 +3,10 @@ import { loadConfig } from "./config.js";
 import type { StateQueue } from "./state-queue.js";
 import type { PetState } from "../shared/types.js";
 
+// Must match BUBBLE_AREA_HEIGHT in main.ts. Inlined here to avoid circular imports
+// (wander → main would be circular; main → wander is the existing direction).
+const BUBBLE_AREA_HEIGHT = 280;
+
 // Internal wander state machine states — distinct from PetState (those are renderer vocab).
 type WanderPhase = "dormant" | "armed" | "walking" | "resting";
 
@@ -83,9 +87,11 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     phase = "dormant";
   }
 
-  // Pick a random position within the current display's work area,
-  // inset by the window's own half-dimensions so it stays fully on screen.
-  // Returns null if the window is destroyed or no valid area exists.
+  // Pick a random position within the current display's work area for the SPRITE center
+  // (not window center). The window is taller than the sprite by BUBBLE_AREA_HEIGHT, so
+  // we keep the sprite center on screen rather than the window center, which would let
+  // the sprite drift off the bottom edge on short displays.
+  // Returns sprite-center coordinates (what startWalking navigates toward).
   function pickTarget(): { x: number; y: number } | null {
     if (win.isDestroyed()) return null;
     const bounds = win.getBounds();
@@ -93,27 +99,34 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     const wa = display.workArea;
 
     const halfW = bounds.width / 2;
-    const halfH = bounds.height / 2;
+    // Sprite occupies the bottom portion of the window; its center is offset from window top.
+    const spriteH = bounds.height - BUBBLE_AREA_HEIGHT;
+    const halfSpriteH = spriteH / 2;
 
-    // Usable area for the window's top-left corner
+    // Usable area for the sprite center (not window center)
+    // Window top-left = spriteCenterX - halfW, spriteCenterY - BUBBLE_AREA_HEIGHT - halfSpriteH
+    // We need that window top-left to stay within work area, so:
     const minX = wa.x + halfW;
     const maxX = wa.x + wa.width - halfW;
-    const minY = wa.y + halfH;
-    const maxY = wa.y + wa.height - halfH;
+    // Window top must be >= wa.y → spriteCenterY - BUBBLE_AREA_HEIGHT - halfSpriteH >= wa.y
+    const minY = wa.y + BUBBLE_AREA_HEIGHT + halfSpriteH;
+    // Window bottom must be <= wa.y + wa.height → spriteCenterY + halfSpriteH <= wa.y + wa.height
+    const maxY = wa.y + wa.height - halfSpriteH;
 
     if (maxX <= minX || maxY <= minY) return null;
 
-    // Keep trying until we get a target at least 100px away (avoid trivial twitches).
-    // Cap attempts to avoid infinite loop on tiny displays.
+    // Sprite center of current window position
     const cx = bounds.x + halfW;
-    const cy = bounds.y + halfH;
+    const cy = bounds.y + BUBBLE_AREA_HEIGHT + halfSpriteH;
+
+    // Keep trying until we get a target at least 100px away (avoid trivial twitches).
     for (let attempt = 0; attempt < 20; attempt++) {
       const tx = Math.round(minX + Math.random() * (maxX - minX));
       const ty = Math.round(minY + Math.random() * (maxY - minY));
       const dist = Math.hypot(tx - cx, ty - cy);
       if (dist >= 100) return { x: tx, y: ty };
     }
-    // Fallback: just return any valid point
+    // Fallback: any valid sprite-center point
     return {
       x: Math.round(minX + Math.random() * (maxX - minX)),
       y: Math.round(minY + Math.random() * (maxY - minY)),
@@ -130,6 +143,7 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
 
   // Read the user's saved home position for the current display, if any.
   // Used when returning home after a real-push interrupt.
+  // Returns SPRITE center coordinates to match pickTarget's contract.
   function homeTargetForCurrentDisplay(): { x: number; y: number } | null {
     if (win.isDestroyed()) return null;
     const cfg = loadConfig();
@@ -137,11 +151,12 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     const saved = cfg.displayPositions?.[String(display.id)];
     if (!saved) return null;
     // displayPositions stores {x, y} as window top-left (per main.ts saveBoundsForDisplay).
-    // Convert to center coordinates so it matches pickTarget's contract.
+    // Sprite center = window top-left + (halfW, BUBBLE_AREA_HEIGHT + halfSpriteH).
     const bounds = win.getBounds();
+    const spriteH = bounds.height - BUBBLE_AREA_HEIGHT;
     return {
       x: saved.x + bounds.width / 2,
-      y: saved.y + bounds.height / 2,
+      y: saved.y + BUBBLE_AREA_HEIGHT + spriteH / 2,
     };
   }
 
@@ -185,8 +200,9 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     target = t;
 
     const bounds = win.getBounds();
-    const cx = bounds.x + bounds.width / 2;
-    const dx = target.x - cx;
+    // Target coords are sprite-center (from pickTarget / homeTargetForCurrentDisplay).
+    // Direction is determined by X only — sprite center X == window center X.
+    const dx = target.x - (bounds.x + bounds.width / 2);
     const direction: PetState = dx >= 0 ? "running-right" : "running-left";
 
     // TTL long enough to cover the walk. 150 px/s over a 2000px display ~= 13s max.
@@ -205,21 +221,25 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
       }
 
       const cur = win.getBounds();
-      // Use window top-left (not center) for setBounds, but navigate by center
-      const curCx = cur.x + cur.width / 2;
-      const curCy = cur.y + cur.height / 2;
+      const spriteH = cur.height - BUBBLE_AREA_HEIGHT;
+      // Navigate by sprite center, not window center.
+      // Sprite center X = window center X (no horizontal bubble offset).
+      // Sprite center Y = window.y + BUBBLE_AREA_HEIGHT + spriteH/2.
+      const curSpriteCx = cur.x + cur.width / 2;
+      const curSpriteCy = cur.y + BUBBLE_AREA_HEIGHT + spriteH / 2;
 
       const tgt = target!;
-      const distX = tgt.x - curCx;
-      const distY = tgt.y - curCy;
+      const distX = tgt.x - curSpriteCx;
+      const distY = tgt.y - curSpriteCy;
       const dist = Math.hypot(distX, distY);
 
       if (dist <= stepPx) {
-        // Arrived — snap to target. If this was the home-return leg, end session.
+        // Arrived — snap to target (tgt is sprite center).
+        // Window top-left: x = tgt.x - halfW, y = tgt.y - BUBBLE_AREA_HEIGHT - spriteH/2.
         clearWalkTick();
         win.setBounds({
           x: Math.round(tgt.x - cur.width / 2),
-          y: Math.round(tgt.y - cur.height / 2),
+          y: Math.round(tgt.y - BUBBLE_AREA_HEIGHT - spriteH / 2),
           width: cur.width,
           height: cur.height,
         });
@@ -232,13 +252,13 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
         return;
       }
 
-      // Step toward target
+      // Step toward target by sprite center
       const ratio = stepPx / dist;
-      const newCx = curCx + distX * ratio;
-      const newCy = curCy + distY * ratio;
+      const newSpriteCx = curSpriteCx + distX * ratio;
+      const newSpriteCy = curSpriteCy + distY * ratio;
       win.setBounds({
-        x: Math.round(newCx - cur.width / 2),
-        y: Math.round(newCy - cur.height / 2),
+        x: Math.round(newSpriteCx - cur.width / 2),
+        y: Math.round(newSpriteCy - BUBBLE_AREA_HEIGHT - spriteH / 2),
         width: cur.width,
         height: cur.height,
       });

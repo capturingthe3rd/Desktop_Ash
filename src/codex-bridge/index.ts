@@ -16,6 +16,7 @@ function postState(push: MappedPush): void {
     ttlMs: push.ttlMs,
     agent: AGENT_LABEL,
     priority: 0,
+    ...(push.message ? { message: push.message } : {}),
   });
 
   const req = http.request(

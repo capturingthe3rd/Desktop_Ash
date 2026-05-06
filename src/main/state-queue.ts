@@ -6,6 +6,7 @@ interface QueueEntry {
   priority: number;
   expiresAt: number | null; // null = sticky (idle)
   pushedAt: number;
+  message: string | null;  // optional completion message for speech bubble
 }
 
 // Default TTLs per state as specified in the plan
@@ -21,9 +22,10 @@ const DEFAULT_TTL_MS: Record<PetState, number | null> = {
   waiting: 3000,
 };
 
-// Subscribers receive both the state and the agent label so they can filter
-// their own pushes (e.g. wander manager ignoring its own running-left pushes).
-type StateChangeCallback = (state: PetState, agent: string | null) => void;
+// Subscribers receive state, agent label, and optional message.
+// Wander manager ignores its own pushes (agent === "wander") and ignores message.
+// Renderer broadcast forwards all three to the renderer process.
+type StateChangeCallback = (state: PetState, agent: string | null, message: string | null) => void;
 
 export class StateQueue {
   private current: QueueEntry;
@@ -54,12 +56,13 @@ export class StateQueue {
       priority: -1, // idle is always superseded by any real push
       expiresAt: null,
       pushedAt: Date.now(),
+      message: null,
     };
   }
 
   push(
     state: PetState,
-    opts: { ttlMs?: number; agent?: string | null; priority?: number } = {}
+    opts: { ttlMs?: number; agent?: string | null; priority?: number; message?: string | null } = {}
   ): void {
     const priority = opts.priority ?? 0;
     const agent = opts.agent ?? null;
@@ -73,7 +76,14 @@ export class StateQueue {
     const rawTtl = opts.ttlMs ?? DEFAULT_TTL_MS[state];
     const expiresAt = rawTtl !== null ? Date.now() + rawTtl : null;
 
-    this.current = { state, agent, priority, expiresAt, pushedAt: Date.now() };
+    // Truncate message at 200 chars with ellipsis
+    let message: string | null = opts.message ?? null;
+    if (typeof message === "string" && message.length > 200) {
+      message = message.slice(0, 199) + "…";
+    }
+    if (message === "") message = null;
+
+    this.current = { state, agent, priority, expiresAt, pushedAt: Date.now(), message };
 
     if (this.decayTimer !== null) {
       clearTimeout(this.decayTimer);
@@ -86,20 +96,20 @@ export class StateQueue {
       }, rawTtl as number);
     }
 
-    this.notifyAll(state, agent);
-    console.log(`[state-queue] → ${state} (agent=${agent ?? "anon"}, ttl=${rawTtl ?? "∞"}ms, priority=${priority})`);
+    this.notifyAll(state, agent, message);
+    console.log(`[state-queue] → ${state} (agent=${agent ?? "anon"}, ttl=${rawTtl ?? "∞"}ms, priority=${priority}, message=${message ? `"${message.slice(0, 40)}…"` : "none"})`);
   }
 
   private decayToIdle(): void {
     this.current = this.makeIdleEntry();
     this.decayTimer = null;
-    this.notifyAll("idle", null);
+    this.notifyAll("idle", null, null);
     console.log("[state-queue] → idle (TTL expired)");
   }
 
-  private notifyAll(state: PetState, agent: string | null): void {
+  private notifyAll(state: PetState, agent: string | null, message: string | null): void {
     for (const cb of this.subscribers) {
-      cb(state, agent);
+      cb(state, agent, message);
     }
   }
 

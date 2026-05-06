@@ -11,31 +11,122 @@
         box-sizing: border-box;
       }
 
-      html,
-      body {
+      html, body {
         width: 100%;
         height: 100%;
         background: transparent;
         overflow: hidden;
-        /* Make entire window draggable except no-drag regions */
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        /* Body itself is the drag handle (overridden per-element via no-drag) */
+        -webkit-app-region: drag;
+      }
+
+      /* Top reserved 280px holds stacked bubbles. Transparent + click-pass-through
+         when empty so users can click through to the desktop. */
+      #bubble-stack {
+        height: 280px;
+        flex: 0 0 280px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 8px 4px;
+        gap: 6px;
+        overflow: hidden;
+        pointer-events: none; /* container = pass-through; individual bubbles re-enable */
+      }
+
+      /* Bottom area = sprite. Takes remaining height. */
+      #pet-area {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         -webkit-app-region: drag;
       }
 
       #pet {
         width: 100%;
         height: 100%;
+        max-width: 100%;
         background-repeat: no-repeat;
         background-size: 800% 900%;
         image-rendering: pixelated;
         image-rendering: crisp-edges;
         aspect-ratio: 192 / 208;
-        /* Pet div itself is drag handle; no controls on it */
-        -webkit-app-region: drag;
+      }
+
+      .bubble {
+        position: relative;
+        max-width: 240px;
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 2px solid;
+        color: #ffffff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        cursor: pointer;
+        pointer-events: auto;
+        -webkit-app-region: no-drag;
+        transition: filter 120ms ease;
+        animation: bubbleEnter 250ms ease-out;
+      }
+
+      .bubble:hover {
+        filter: brightness(1.08);
+      }
+
+      .bubble.fading {
+        animation: bubbleExit 400ms ease-in forwards;
+        pointer-events: none;
+      }
+
+      .bubble .agent-label {
+        font-size: 10px;
+        font-weight: 600;
+        opacity: 0.85;
+        margin-bottom: 4px;
+        text-transform: lowercase;
+        letter-spacing: 0.02em;
+      }
+
+      .bubble .message {
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.35;
+        word-wrap: break-word;
+      }
+
+      .bubble .tail {
+        position: absolute;
+        bottom: -8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        /* border-top color set inline to match bubble bg */
+      }
+
+      @keyframes bubbleEnter {
+        from { transform: translateY(-8px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+
+      @keyframes bubbleExit {
+        to { opacity: 0; transform: translateY(-4px); }
       }
     </style>
   </head>
   <body>
-    <div id="pet"></div>
+    <div id="bubble-stack"></div>
+    <div id="pet-area">
+      <div id="pet"></div>
+    </div>
     <script type="module" src="./renderer.ts"></script>
   </body>
 </html>

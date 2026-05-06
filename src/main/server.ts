@@ -59,6 +59,7 @@ export function createServer(queue: StateQueue): http.Server {
           ttlMs: typeof body.ttlMs === "number" ? body.ttlMs : undefined,
           agent: typeof body.agent === "string" ? body.agent : null,
           priority: typeof body.priority === "number" ? body.priority : 0,
+          message: typeof body.message === "string" ? body.message : null,
         });
 
         const current = queue.getCurrent();
@@ -78,6 +79,7 @@ export function createServer(queue: StateQueue): http.Server {
         agent: current.agent,
         until: current.expiresAt !== null ? new Date(current.expiresAt).toISOString() : null,
         priority: current.priority,
+        message: current.message,
       };
       jsonResponse(res, 200, response);
       return;

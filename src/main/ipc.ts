@@ -35,8 +35,8 @@ export function registerIpcHandlers(): void {
 }
 
 // Push a state update from the main process to the renderer.
-// Called by the state queue's onStateChange callback.
-export function broadcastState(win: BrowserWindow, state: string): void {
+// Payload expanded to {state, agent, message} so renderer bubble manager can act on message.
+export function broadcastState(win: BrowserWindow, state: string, agent: string | null, message: string | null): void {
   if (win.isDestroyed()) return;
-  win.webContents.send(IPC.STATE_UPDATE, state);
+  win.webContents.send(IPC.STATE_UPDATE, { state, agent, message });
 }

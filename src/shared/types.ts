@@ -32,6 +32,7 @@ export interface StatePushRequest {
   ttlMs?: number;
   agent?: string;
   priority?: number;
+  message?: string; // optional completion message; non-empty triggers speech bubble
 }
 
 // Wire format for GET /state response
@@ -40,6 +41,7 @@ export interface StateGetResponse {
   agent: string | null;
   until: string | null; // ISO timestamp, null when idle (no TTL)
   priority: number;
+  message: string | null; // current entry's message, if any
 }
 
 // POST /state success response
@@ -79,12 +81,17 @@ export interface AppConfig {
   idleWanderEnabled?: boolean;
   idleWanderDelayMs?: number;
   idleWanderSpeedPxPerSec?: number;
+  // Speech bubble feature flags (Phase 8)
+  bubbleEnabled?: boolean;      // default true
+  bubbleLifetimeMs?: number;    // default 10000 (10s per bubble)
+  bubbleMaxStack?: number;      // default 5 stacked bubbles
 }
 
 // IPC channel names for main <-> renderer communication
 export const IPC = {
-  STATE_UPDATE: "state:update",       // main → renderer: new PetState
-  PETS_LIST: "pets:list",             // renderer → main (invoke): PetManifest[]
-  PET_SELECT: "pet:select",           // renderer → main (invoke): string (petId)
+  STATE_UPDATE: "state:update",        // main → renderer: {state, agent, message}
+  PETS_LIST: "pets:list",              // renderer → main (invoke): PetManifest[]
+  PET_SELECT: "pet:select",            // renderer → main (invoke): string (petId)
   SPRITESHEET_PATH: "pet:spritesheet", // renderer → main (invoke): string (abs path)
+  BUBBLE_CLICK: "bubble:click",        // renderer → main (send): { agent: string }
 } as const;

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, protocol, net, ipcMain, screen } from "electron";
+import { exec } from "child_process";
 import path from "path";
 import { loadConfig, saveConfig } from "./config.js";
 import { scanPets } from "./pet-scanner.js";
@@ -27,11 +28,15 @@ let overlayWin: BrowserWindow | null = null;
 let pickerWin: BrowserWindow | null = null;
 let wanderHandle: WanderHandle | null = null;
 
+// Reserved pixel height above the sprite for speech bubbles. Constant — window
+// is sized once at startup to include this area; no dynamic resize needed.
+const BUBBLE_AREA_HEIGHT = 280;
+
 // State queue is instantiated here so server and IPC can share it.
-// Renderer broadcast subscriber ignores the agent label (only forwards state).
-const queue = new StateQueue((state, _agent) => {
+// Initial subscriber forwards all three args to the renderer.
+const queue = new StateQueue((state, agent, message) => {
   if (overlayWin && !overlayWin.isDestroyed()) {
-    broadcastState(overlayWin, state);
+    broadcastState(overlayWin, state, agent, message);
   }
 });
 
@@ -113,30 +118,36 @@ function saveBoundsForDisplay(displayId: string, bounds: { x: number; y: number 
   saveConfig({ ...cfg, displayPositions: next });
 }
 
-// Resize the overlay window in place, keeping it centered on its current position.
+// Resize the overlay window in place, keeping the SPRITE center stable (not window center).
+// Window height = BUBBLE_AREA_HEIGHT + 208*scale. Sprite center is at
+// window.y + BUBBLE_AREA_HEIGHT + (208*scale)/2. We preserve that y coordinate.
 function resizeOverlay(win: BrowserWindow, scale: number): void {
-  const w = Math.round(192 * scale);
-  const h = Math.round(208 * scale);
+  const spriteH = Math.round(208 * scale);
+  const w = Math.max(Math.round(192 * scale), 240);
+  const h = BUBBLE_AREA_HEIGHT + spriteH;
   const cur = win.getBounds();
-  // Keep visual center stable rather than top-left
+  // Sprite center Y in screen coords (stays fixed across resize)
+  const prevSpriteH = cur.height - BUBBLE_AREA_HEIGHT;
+  const spriteCenterY = cur.y + BUBBLE_AREA_HEIGHT + prevSpriteH / 2;
+  // Compute new window top-left so sprite center stays at spriteCenterY
+  const newY = Math.round(spriteCenterY - BUBBLE_AREA_HEIGHT - spriteH / 2);
   const cx = cur.x + cur.width / 2;
-  const cy = cur.y + cur.height / 2;
   win.setBounds({
     x: Math.round(cx - w / 2),
-    y: Math.round(cy - h / 2),
+    y: newY,
     width: w,
     height: h,
   });
 }
 
 function createOverlayWindow(): BrowserWindow {
-  // Base cell 192×208. Initial scale = whichever display the cursor is on saved scale.
+  // Width = max(192*scale, 240) to fit bubble min-width. Height = BUBBLE_AREA_HEIGHT + 208*scale.
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
   const scale = scaleForDisplay(String(display.id));
   const win = new BrowserWindow({
-    width: Math.round(192 * scale),
-    height: Math.round(208 * scale),
+    width: Math.max(Math.round(192 * scale), 240),
+    height: BUBBLE_AREA_HEIGHT + Math.round(208 * scale),
     transparent: true,
     frame: false,
     hasShadow: false,
@@ -243,7 +254,8 @@ function createOverlayWindow(): BrowserWindow {
 function openOverlay(): BrowserWindow {
   const win = createOverlayWindow();
   wanderHandle = startWanderManager(win, queue);
-  const unsubscribe = queue.subscribe((state, agent) => wanderHandle?.notifyStateChange(state, agent));
+  // Third arg (message) is irrelevant to wander — ignored via _message parameter.
+  const unsubscribe = queue.subscribe((state, agent, _message) => wanderHandle?.notifyStateChange(state, agent));
   win.on("closed", () => {
     unsubscribe();
     wanderHandle?.stop();
@@ -273,6 +285,37 @@ app.whenReady().then(() => {
 
   // Register IPC handlers
   registerIpcHandlers();
+
+  // BUBBLE_CLICK: renderer left-clicked a bubble → bring agent app to front.
+  // Fire-and-forget AppleScript. Never throws to the renderer — non-blocking by design.
+  ipcMain.on(IPC.BUBBLE_CLICK, (_event, payload: { agent: string }) => {
+    const agent = payload?.agent ?? "";
+    console.log(`[bubble] click → agent="${agent}"`);
+
+    if (agent === "claude-code") {
+      // Try iTerm2 first, fall back to Terminal.
+      const script = `
+        tell application "System Events"
+          set itermRunning to (count of (every process whose name is "iTerm2")) > 0
+        end tell
+        if itermRunning then
+          tell application "iTerm2" to activate
+        else
+          tell application "Terminal" to activate
+        end if
+      `;
+      exec(`osascript -e '${script.replace(/'/g, "'\\''")}'`, (err: Error | null) => {
+        if (err) console.log(`[bubble] osascript iTerm2/Terminal: ${err.message}`);
+      });
+    } else if (agent === "codex") {
+      // Codex Desktop may be named "Codex" or "ChatGPT" depending on version.
+      exec(`osascript -e 'tell application "Codex" to activate' 2>/dev/null || osascript -e 'tell application "ChatGPT" to activate'`, (err: Error | null) => {
+        if (err) console.log(`[bubble] osascript Codex/ChatGPT: ${err.message}`);
+      });
+    } else {
+      console.log(`[bubble] no app target for agent "${agent}" — no-op`);
+    }
+  });
 
   // PET_SELECT is handled here (not in ipc.ts) so we can close the picker window
   // after persisting the choice. ipc.ts already registered a generic handler — remove it
