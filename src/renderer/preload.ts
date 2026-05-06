@@ -15,6 +15,8 @@ const IPC = {
   SETTINGS_GET_DISPLAY_ID: "settings:display-id",
   LOGIN_GET: "login:get",
   LOGIN_SET: "login:set",
+  // Phase 10A — activity log (renderer → main, fire-and-forget)
+  ACTIVITY_LOG: "activity:log",
 } as const;
 
 interface StateUpdatePayload {
@@ -36,6 +38,11 @@ contextBridge.exposeInMainWorld("ash", {
   // Left-click on a bubble — main process focuses the agent's app via osascript.
   clickBubble: (agent: string | null) => {
     ipcRenderer.send(IPC.BUBBLE_CLICK, { agent });
+  },
+  // Phase 10A — fire-and-forget activity log from renderer (bubble spawns, etc.)
+  // Renderer is sandboxed and cannot import main-process modules; relay via IPC.
+  logActivity: (type: string, data: object) => {
+    ipcRenderer.send(IPC.ACTIVITY_LOG, { type, data });
   },
   // Phase 9 settings window APIs
   getSettings: (): Promise<unknown> => ipcRenderer.invoke(IPC.SETTINGS_GET),

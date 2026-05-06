@@ -1,4 +1,4 @@
-import { app, Tray, Menu, nativeImage, screen, BrowserWindow } from "electron";
+import { app, Tray, Menu, nativeImage, screen, BrowserWindow, shell } from "electron";
 import path from "path";
 import type { WanderHandle } from "./wander.js";
 
@@ -10,6 +10,11 @@ interface TrayDeps {
   wanderHandle: () => WanderHandle | null;
   openSettings: () => void;
   openPicker: () => void;
+  // Phase 10A — activity log integration
+  getLogsDir: () => string;
+  getLatestCrashReportPath: () => string | null;
+  hasCrashLog: () => boolean;
+  logActivity: (type: string, data: object) => void;
 }
 
 // Rebuild and re-assign the context menu each time it needs to reflect updated state.
@@ -71,6 +76,28 @@ function buildMenu(deps: TrayDeps): Electron.Menu {
         deps.openSettings();
       },
     },
+    {
+      label: "Reveal Logs in Finder",
+      click() {
+        deps.logActivity("tray_action", { action: "revealLogs" });
+        shell.openPath(deps.getLogsDir()).catch((err: unknown) => {
+          console.warn("[tray] shell.openPath logs failed:", err);
+        });
+      },
+    },
+    // "Last Crash Report" is only shown when crashes.jsonl has at least one entry.
+    ...(deps.hasCrashLog() ? [{
+      label: "Last Crash Report",
+      click() {
+        deps.logActivity("tray_action", { action: "openCrashReport" });
+        const ipsPath = deps.getLatestCrashReportPath();
+        if (ipsPath) {
+          shell.openPath(ipsPath).catch((err: unknown) => {
+            console.warn("[tray] shell.openPath crash report failed:", err);
+          });
+        }
+      },
+    }] : []),
     { type: "separator" },
     {
       label: "Open at Login",

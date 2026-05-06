@@ -157,6 +157,50 @@ Codex's own pet overlay (if you have one) keeps running side-by-side. This bridg
 
 See [`notes/codex-event-schema.md`](notes/) and [`notes/codex-event-samples.md`](notes/codex-event-samples.md) for the full schema reference.
 
+## Logs
+
+Desktop Ash writes structured logs to `~/Library/Application Support/Desktop_Ash/logs/`.
+
+### Log files
+
+| File | Description |
+|---|---|
+| `activity.jsonl` | Main event log. One JSON object per line: `{"ts", "session_id", "type", "data"}`. Rolling: archived to `activity-YYYY-MM-DD.jsonl` when it exceeds 5000 lines. Archives older than 7 days are deleted. |
+| `heartbeat` | Small JSON file rewritten every 10s with the current session ID and last activity timestamp. Deleted on clean shutdown. If it exists on the next launch, a crash is inferred. |
+| `crashes.jsonl` | One entry per detected crash: `{"ts", "sessionId", "durationMs", "ipsPath", "lastActivityTs"}`. `ipsPath` points to the macOS `.ips` crash report in `~/Library/Logs/DiagnosticReports/` if one was found within ±60s of the crash. |
+
+### Logged event types
+
+| type | data fields |
+|---|---|
+| `launch` | `version`, `electron`, `platform`, `configSnapshot` |
+| `state_push` | `state`, `agent`, `hasMessage` |
+| `wander_phase` | `from`, `to`, `reason` |
+| `bubble_spawn` | `agent`, `messageLength` |
+| `tray_action` | `action` |
+| `error` | `where`, `message`, `stack` |
+| `shutdown_clean` | _(no fields — presence of entry is the signal)_ |
+| `crash_detected` | `previousSessionId`, `lastActivityTs`, `ipsPath`, `durationMs` |
+
+### Inspection scripts
+
+**Live tail** (streams new entries as they arrive):
+```bash
+bash scripts/log-tail.sh
+```
+Requires `jq` (`brew install jq`).
+
+**Session summary** (last N sessions, default 5):
+```bash
+bash scripts/log-summary.sh        # last 5 sessions
+bash scripts/log-summary.sh 10     # last 10 sessions
+```
+
+### Tray shortcuts
+
+- **Reveal Logs in Finder** — opens the logs directory in Finder.
+- **Last Crash Report** — opens the most recent `.ips` crash report in Console.app. Only visible when at least one crash has been recorded.
+
 ## Architecture
 
 ```

@@ -17,6 +17,8 @@ declare global {
       listPets: () => Promise<unknown[]>;
       selectPet: (petId: string) => Promise<string>;
       clickBubble: (agent: string | null) => void;
+      // Phase 10A — relay activity events to main via IPC
+      logActivity: (type: string, data: object) => void;
     };
   }
 }
@@ -222,6 +224,8 @@ function spawnBubble(agent: string | null, message: string): void {
   });
 
   console.log(`[bubble] spawned agent="${agent ?? "anon"}" message="${message.slice(0, 40)}…"`);
+  // Relay to main for activity log — renderer is sandboxed, so send via IPC bridge.
+  window.ash.logActivity("bubble_spawn", { agent, messageLength: message.length });
 }
 
 // ── Wire-up ─────────────────────────────────────────────────────────────────

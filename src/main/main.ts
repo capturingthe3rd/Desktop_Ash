@@ -12,6 +12,7 @@ import type { WanderHandle } from "./wander.js";
 import { IPC } from "../shared/types.js";
 import type { PetManifest, AppConfig } from "../shared/types.js";
 import { startTray } from "./tray.js";
+import { initActivityLog, logActivity, markCleanShutdown, getLogsDir, getLatestCrashReportPath, hasCrashLog } from "./activity-log.js";
 
 // Force userData dir to match plan-specified path (~/Library/Application Support/Desktop_Ash).
 // Without this, Electron uses package.json `name` (lowercase "desktop_ash" — npm requires lowercase).
@@ -37,6 +38,14 @@ let overlayWin: BrowserWindow | null = null;
 let pickerWin: BrowserWindow | null = null;
 let settingsWin: BrowserWindow | null = null;
 let wanderHandle: WanderHandle | null = null;
+
+// Drag-direction tracking — updated inside the will-move handler.
+// lastDragX: window.x at the previous will-move event (null = first event of this drag session).
+// lastDragPushAt: Date.now() when we last pushed a running-* state for drag.
+// lastDragDirection: the direction we last pushed so purely-vertical drags keep facing stable.
+let lastDragX: number | null = null;
+let lastDragPushAt: number = 0;
+let lastDragDirection: "running-right" | "running-left" = "running-right";
 
 // True only when user has explicitly chosen to quit (tray Quit, Cmd+Q).
 // The overlay window's close handler reads this to decide hide vs. destroy.
@@ -241,9 +250,40 @@ function createOverlayWindow(): BrowserWindow {
   // (If this proves to fire for setBounds in some Electron builds, we'd see wander
   // self-cancel on every walk tick — easily spotted in /tmp/desktop_ash.log.)
   win.on("will-move", () => {
+    // Cancel wander FIRST so it yields before we push the drag direction.
     if (wanderHandle?.isWandering()) {
       console.log("[main] user drag detected (will-move) — yielding wander");
       wanderHandle.notifyUserDrag();
+    }
+
+    // Drag-direction running animation.
+    // will-move fires only for manual drags (not setBounds), giving us a clean
+    // signal to push running-left / running-right based on horizontal movement.
+    const currentX = win.getBounds().x;
+
+    if (lastDragX === null) {
+      // First event of this drag session — initialize tracking, don't push yet
+      // (we need a delta, and the first event gives us no direction).
+      lastDragX = currentX;
+    } else {
+      const deltaX = currentX - lastDragX;
+      lastDragX = currentX;
+
+      const now = Date.now();
+      const directionChanged =
+        (deltaX > 0 && lastDragDirection !== "running-right") ||
+        (deltaX < 0 && lastDragDirection !== "running-left");
+      const throttleElapsed = now - lastDragPushAt >= 100;
+
+      // Only push if moving horizontally (|Δx| >= 5px threshold).
+      // Purely vertical drags keep whatever direction was last pushed.
+      if (Math.abs(deltaX) >= 5 && (directionChanged || throttleElapsed)) {
+        const direction: "running-right" | "running-left" =
+          deltaX > 0 ? "running-right" : "running-left";
+        lastDragDirection = direction;
+        lastDragPushAt = now;
+        queue.push(direction, { priority: -1, ttlMs: 1500, agent: "drag" });
+      }
     }
   });
 
@@ -315,6 +355,8 @@ function createOverlayWindow(): BrowserWindow {
 
   win.on("closed", () => {
     if (moveDebounce !== null) clearTimeout(moveDebounce);
+    // Reset drag-tracking so a re-opened overlay starts with no stale delta.
+    lastDragX = null;
     overlayWin = null;
     queue.destroy();
   });
@@ -341,7 +383,10 @@ function openOverlay(): BrowserWindow {
 // Set the "user is quitting" flag so the overlay close interceptor knows to let
 // the close go through. Tray Quit, Cmd+Q, and "Quit Desktop Ash" menu items
 // all flow through before-quit before destroying windows.
+// markCleanShutdown() runs first so the heartbeat is deleted before any window
+// teardown, ensuring crash detection on the next launch is accurate.
 app.on("before-quit", () => {
+  markCleanShutdown();
   isQuitting = true;
 });
 
@@ -354,6 +399,22 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
+  // Activity log must init before any window creation so the launch event and
+  // crash detection run before anything else can write to the log.
+  initActivityLog();
+
+  // Log every state push — agent and hasMessage only, never the message body.
+  queue.subscribe((state, agent, message) => {
+    logActivity("state_push", { state, agent, hasMessage: message !== null && message.length > 0 });
+  });
+
+  // Relay activity log events from the sandboxed renderer process.
+  ipcMain.on(IPC.ACTIVITY_LOG, (_event, payload: { type: string; data: object }) => {
+    if (typeof payload?.type === "string") {
+      logActivity(payload.type, payload.data ?? {});
+    }
+  });
+
   // Register the ash-asset:// protocol handler
   protocol.handle("ash-asset", (request) => {
     // URL is: ash-asset://<absolute-path-to-file>
@@ -494,6 +555,10 @@ app.whenReady().then(() => {
     wanderHandle: () => wanderHandle,
     openSettings,
     openPicker,
+    getLogsDir,
+    getLatestCrashReportPath,
+    hasCrashLog,
+    logActivity,
   });
 });
 

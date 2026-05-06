@@ -100,4 +100,6 @@ export const IPC = {
   SETTINGS_GET_DISPLAY_ID: "settings:display-id", // renderer → main (invoke): string
   LOGIN_GET: "login:get",                  // renderer → main (invoke): boolean
   LOGIN_SET: "login:set",                  // renderer → main (invoke): boolean
+  // Phase 10A — activity log IPC (renderer → main, fire-and-forget send)
+  ACTIVITY_LOG: "activity:log",            // renderer → main (send): {type: string, data: object}
 } as const;

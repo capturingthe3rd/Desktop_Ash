@@ -1,5 +1,6 @@
 import { BrowserWindow, screen } from "electron";
 import { loadConfig } from "./config.js";
+import { logActivity } from "./activity-log.js";
 import type { StateQueue } from "./state-queue.js";
 import type { PetState } from "../shared/types.js";
 
@@ -93,12 +94,14 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
 
   function enterDormant(reason: string): void {
     if (phase === "dormant") return;
-    console.log(`[wander] ${phase} → dormant (${reason})`);
+    const from = phase;
+    console.log(`[wander] ${from} → dormant (${reason})`);
     clearArmedTimer();
     clearWalkTick();
     clearRestTimer();
     target = null;
     phase = "dormant";
+    logActivity("wander_phase", { from, to: "dormant", reason });
   }
 
   // Pick a random position within the current display's work area for the SPRITE center
@@ -238,6 +241,7 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     pushWanderState(direction, 20000);
     console.log(`[wander] armed → walking target=(${target.x},${target.y}) dir=${direction}`);
     phase = "walking";
+    logActivity("wander_phase", { from: "armed", to: "walking", reason: isReturningHome ? "return_home" : "random_walk" });
 
     const stepPx = (speedPxPerSec * 16) / 1000; // distance per 16ms tick
 
@@ -296,6 +300,7 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
   function enterResting(): void {
     phase = "resting";
     console.log("[wander] walking → resting");
+    logActivity("wander_phase", { from: "walking", to: "resting", reason: "arrived_at_target" });
 
     // Weighted random rest behavior
     const roll = Math.random();
@@ -352,6 +357,7 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
   // his home-return walk.
   function endSession(): void {
     console.log("[wander] session complete (arrived home), cooldown for next session");
+    logActivity("wander_phase", { from: "walking", to: "dormant", reason: "session_complete" });
     walksThisSession = 0;
     sessionMaxRandomWalks = 0;
     isReturningHome = false;
@@ -403,6 +409,7 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
         if (phase === "dormant") {
           phase = "armed";
           console.log(`[wander] dormant → armed (idle, will wander in ${delayMs}ms)`);
+          logActivity("wander_phase", { from: "dormant", to: "armed", reason: "idle_state" });
           armedTimer = setTimeout(() => {
             armedTimer = null;
             if (phase !== "armed") return; // cancelled between arm and fire
