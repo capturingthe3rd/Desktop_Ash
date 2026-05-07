@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net, ipcMain, screen, Menu, dialog, Notification, shell } from "electron";
+import { app, BrowserWindow, protocol, net, ipcMain, screen, Menu, dialog, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
 import { exec } from "child_process";
 import path from "path";
@@ -706,34 +706,36 @@ app.whenReady().then(() => {
 
     if (agent === "claude-code") {
       if (sessionPath) {
-        // Tier 2: open the specific session JSONL in the default registered app.
-        // VS Code, Zed, or any .jsonl handler will open it. If openPath returns
-        // a non-empty error string (no registered handler), fall back to terminal focus.
-        shell.openPath(sessionPath)
-          .then((errMsg: string) => {
-            if (errMsg) {
-              console.log(`[bubble] shell.openPath failed ("${errMsg}") → falling back to terminal`);
-              focusClaudeCodeTerminal();
-              logActivity("bubble_click", { agent, sessionType, sessionId, action: "terminal_fallback", reason: errMsg });
-            } else {
-              logActivity("bubble_click", { agent, sessionType, sessionId, action: "open_session_file" });
-            }
-          })
-          .catch((err: unknown) => {
-            console.log(`[bubble] shell.openPath threw: ${String(err)}`);
+        // Tier 2: explicitly open the session JSONL in VS Code (Capt's preference).
+        // Bypasses OS file association — uses `code` CLI directly. Falls back to terminal
+        // if `code` is missing from PATH.
+        const escaped = sessionPath.replace(/"/g, '\\"');
+        exec(`code "${escaped}"`, (err: Error | null) => {
+          if (err) {
+            console.log(`[bubble] code CLI failed (${err.message}) → falling back to terminal`);
             focusClaudeCodeTerminal();
-          });
+            logActivity("bubble_click", { agent, sessionType, sessionId, action: "terminal_fallback", reason: err.message });
+          } else {
+            logActivity("bubble_click", { agent, sessionType, sessionId, action: "open_in_vscode" });
+          }
+        });
       } else {
         // Tier 1 fallback: no session path — just focus the terminal running Claude Code.
         focusClaudeCodeTerminal();
         logActivity("bubble_click", { agent, sessionType, sessionId, action: "terminal_focus" });
       }
     } else if (agent === "codex") {
-      // Codex has a codex:// URL scheme but it only routes OAuth callbacks, not session URLs.
-      // Best available action: focus Codex.app so the user can see the running session.
+      // Capt uses Codex.app for Codex sessions. No URL scheme for sessions exists,
+      // so we focus the app and let the user navigate from there.
       exec(`osascript -e 'tell application "Codex" to activate' 2>/dev/null || osascript -e 'tell application "ChatGPT" to activate'`, (err: Error | null) => {
         if (err) console.log(`[bubble] osascript Codex/ChatGPT: ${err.message}`);
         logActivity("bubble_click", { agent, sessionType, sessionId, action: "focus_codex_app" });
+      });
+    } else if (agent === "gemini") {
+      // Capt uses the Gemini app for Gemini sessions. Same focus-app pattern as Codex.
+      exec(`osascript -e 'tell application "Gemini" to activate'`, (err: Error | null) => {
+        if (err) console.log(`[bubble] osascript Gemini: ${err.message}`);
+        logActivity("bubble_click", { agent, sessionType, sessionId, action: "focus_gemini_app" });
       });
     } else {
       console.log(`[bubble] no app target for agent "${agent}" — no-op`);

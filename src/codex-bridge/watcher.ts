@@ -8,7 +8,8 @@ import type { MappedPush } from "./event-mapper.js";
 // Callback invoked with a mapped state push. Caller handles the HTTP POST.
 type PushCallback = (push: MappedPush) => void;
 
-// Codex sessions live at ~/.codex/sessions/<year>/<YYYY-MM-DD>/rollout-*.jsonl
+// Codex sessions live at ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+// (3-level structure: zero-padded year, month, day as separate segments).
 const CODEX_SESSIONS_ROOT = path.join(os.homedir(), ".codex", "sessions");
 
 // Debounce window in ms — if multiple events fire within this window,
@@ -30,13 +31,13 @@ interface WatcherState {
   pendingPush: MappedPush | null;
 }
 
-// Return today's session directory path, e.g. ~/.codex/sessions/2026/2026-05-06
+// Return today's session directory path, e.g. ~/.codex/sessions/2026/05/07
 function todayDir(): string {
   const now = new Date();
   const year = String(now.getFullYear());
-  // YYYY-MM-DD
-  const dateStr = now.toISOString().slice(0, 10);
-  return path.join(CODEX_SESSIONS_ROOT, year, dateStr);
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return path.join(CODEX_SESSIONS_ROOT, year, month, day);
 }
 
 // Find the lexicographically latest .jsonl in a directory.
