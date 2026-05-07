@@ -324,24 +324,35 @@ async function init(): Promise<void> {
   }
   petDiv.style.backgroundImage = `url("ash-asset://${spritesheetPath}")`;
 
-  // In the dynamic layout, #pet is absolutely positioned and needs explicit dims.
-  // The window starts sprite-only (width=spriteW, height=spriteH), so we can read
-  // innerWidth/innerHeight directly on init when body.no-bubble is active.
-  // On window resize (scale change or layout change), main resizes the BrowserWindow
-  // so the CSS layout reflows automatically — no JS resize listener needed.
-  function applySpriteSize(): void {
-    // In no-bubble mode the window IS the sprite, so use full window dims.
-    // In side modes the sprite dims are fixed and the window grows around them;
-    // CSS positions the sprite correctly — we just need the base dimensions set once.
-    petDiv.style.width = `${window.innerWidth}px`;
-    petDiv.style.height = `${window.innerHeight}px`;
+  // Compute sprite dims from the SCALE (not window dims), so the pet element
+  // is always 192*scale × 208*scale regardless of which side a bubble is on.
+  // Reading window.innerWidth was unreliable: in no-bubble the window matches
+  // sprite dims, but in side-* layouts the window is larger and stale inline
+  // dims would clip the sprite to upper-left of an oversized pet div.
+  async function applySpriteSize(): Promise<void> {
+    try {
+      const [cfg, displayId] = await Promise.all([
+        window.ash.getSettings(),
+        window.ash.getCurrentDisplayId(),
+      ]);
+      const scale = (displayId && cfg.displayScales?.[displayId])
+        ?? cfg.overlayScale
+        ?? 1.5;
+      const spriteW = Math.round(192 * scale);
+      const spriteH = Math.round(208 * scale);
+      petDiv.style.width = `${spriteW}px`;
+      petDiv.style.height = `${spriteH}px`;
+    } catch {
+      // Fallback: no IPC available — use window dims. Should never happen.
+      petDiv.style.width = `${window.innerWidth}px`;
+      petDiv.style.height = `${window.innerHeight}px`;
+    }
   }
 
-  // We only need dims when in no-bubble mode (sprite fills window).
-  // In side modes the sprite dims are applied via aspect-ratio + known scale.
-  // For simplicity: read from CSS custom props if available, else use window size.
-  // The renderer doesn't know the scale — use the actual window size at init.
-  applySpriteSize();
+  await applySpriteSize();
+  // Re-apply on every window resize so scale changes (Cmd+= / Cmd+-) update
+  // the sprite element to match the new spriteW/spriteH.
+  window.addEventListener("resize", () => { void applySpriteSize(); });
 
   window.ash.onStateUpdate((payload: StateUpdatePayload) => {
     const state = payload.state as PetState;
