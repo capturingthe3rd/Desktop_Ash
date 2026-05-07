@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net, ipcMain, screen, Menu, dialog, Notification } from "electron";
+import { app, BrowserWindow, protocol, net, ipcMain, screen, Menu, dialog, Notification, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import { exec } from "child_process";
 import path from "path";
@@ -556,7 +556,7 @@ app.whenReady().then(() => {
   // Log every state push — agent and hasMessage only, never the message body.
   queue.subscribe((state, agent, message) => {
     logActivity("state_push", { state, agent, hasMessage: message !== null && message.length > 0 });
-  });
+  }); // session metadata not needed here
 
   // Phase 12A — outbound webhook mirror. Fires on every state transition when enabled.
   // Error states satisfy both stateChanges and errors filters simultaneously.
@@ -671,34 +671,73 @@ app.whenReady().then(() => {
     resizeOverlayForSide(win, "none", scale);
   });
 
-  // BUBBLE_CLICK: renderer left-clicked a bubble → bring agent app to front.
-  // Fire-and-forget AppleScript. Never throws to the renderer — non-blocking by design.
-  ipcMain.on(IPC.BUBBLE_CLICK, (_event, payload: { agent: string }) => {
+  // Extracted helper: focus the terminal where Claude Code is likely running.
+  // Used as Tier 1 fallback when no sessionPath is available for direct file open.
+  function focusClaudeCodeTerminal(): void {
+    const script = `
+      tell application "System Events"
+        set itermRunning to (count of (every process whose name is "iTerm2")) > 0
+      end tell
+      if itermRunning then
+        tell application "iTerm2" to activate
+      else
+        tell application "Terminal" to activate
+      end if
+    `;
+    exec(`osascript -e '${script.replace(/'/g, "'\\''")}' `, (err: Error | null) => {
+      if (err) console.log(`[bubble] osascript iTerm2/Terminal: ${err.message}`);
+    });
+  }
+
+    // BUBBLE_CLICK: renderer left-clicked a bubble → open agent session (Tier 2) or focus app (Tier 1).
+  // Phase 12C: if sessionPath is present, shell.openPath targets the exact session JSONL.
+  // Falls back gracefully when session metadata is absent. Never throws — fire-and-forget.
+  ipcMain.on(IPC.BUBBLE_CLICK, (_event, payload: {
+    agent: string;
+    sessionType?: string;
+    sessionPath?: string;
+    sessionId?: string;
+  }) => {
     const agent = payload?.agent ?? "";
-    console.log(`[bubble] click → agent="${agent}"`);
+    const sessionType = typeof payload?.sessionType === "string" ? payload.sessionType : null;
+    const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : null;
+    const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : null;
+    console.log(`[bubble] click → agent="${agent}" sessionType=${sessionType ?? "none"} sessionId=${sessionId ?? "none"}`);
 
     if (agent === "claude-code") {
-      // Try iTerm2 first, fall back to Terminal.
-      const script = `
-        tell application "System Events"
-          set itermRunning to (count of (every process whose name is "iTerm2")) > 0
-        end tell
-        if itermRunning then
-          tell application "iTerm2" to activate
-        else
-          tell application "Terminal" to activate
-        end if
-      `;
-      exec(`osascript -e '${script.replace(/'/g, "'\\''")}'`, (err: Error | null) => {
-        if (err) console.log(`[bubble] osascript iTerm2/Terminal: ${err.message}`);
-      });
+      if (sessionPath) {
+        // Tier 2: open the specific session JSONL in the default registered app.
+        // VS Code, Zed, or any .jsonl handler will open it. If openPath returns
+        // a non-empty error string (no registered handler), fall back to terminal focus.
+        shell.openPath(sessionPath)
+          .then((errMsg: string) => {
+            if (errMsg) {
+              console.log(`[bubble] shell.openPath failed ("${errMsg}") → falling back to terminal`);
+              focusClaudeCodeTerminal();
+              logActivity("bubble_click", { agent, sessionType, sessionId, action: "terminal_fallback", reason: errMsg });
+            } else {
+              logActivity("bubble_click", { agent, sessionType, sessionId, action: "open_session_file" });
+            }
+          })
+          .catch((err: unknown) => {
+            console.log(`[bubble] shell.openPath threw: ${String(err)}`);
+            focusClaudeCodeTerminal();
+          });
+      } else {
+        // Tier 1 fallback: no session path — just focus the terminal running Claude Code.
+        focusClaudeCodeTerminal();
+        logActivity("bubble_click", { agent, sessionType, sessionId, action: "terminal_focus" });
+      }
     } else if (agent === "codex") {
-      // Codex Desktop may be named "Codex" or "ChatGPT" depending on version.
+      // Codex has a codex:// URL scheme but it only routes OAuth callbacks, not session URLs.
+      // Best available action: focus Codex.app so the user can see the running session.
       exec(`osascript -e 'tell application "Codex" to activate' 2>/dev/null || osascript -e 'tell application "ChatGPT" to activate'`, (err: Error | null) => {
         if (err) console.log(`[bubble] osascript Codex/ChatGPT: ${err.message}`);
+        logActivity("bubble_click", { agent, sessionType, sessionId, action: "focus_codex_app" });
       });
     } else {
       console.log(`[bubble] no app target for agent "${agent}" — no-op`);
+      logActivity("bubble_click", { agent, sessionType, sessionId, action: "noop" });
     }
   });
 

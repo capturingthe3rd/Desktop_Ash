@@ -13,6 +13,10 @@ export interface MappedPush {
   ttlMs: number;
   // Optional speech-bubble message (Phase 8). Present on completion / error events.
   message?: string;
+  // Phase 12C — session metadata for deep-link routing. Filled in by watcher.ts which
+  // knows the active JSONL file path; event-mapper never sees the filesystem.
+  sessionId?: string;
+  sessionPath?: string;
 }
 
 // Truncate a Codex agent message for bubble display. Keeps the first line/sentence

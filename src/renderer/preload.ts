@@ -32,6 +32,10 @@ interface StateUpdatePayload {
   state: string;
   agent: string | null;
   message: string | null;
+  // Phase 12C — session metadata passed through from the state push for deep-link routing
+  sessionId: string | null;
+  sessionPath: string | null;
+  sessionType: string | null;
 }
 
 // PetManifest type is intentionally not imported — preload only forwards opaque values.
@@ -44,9 +48,11 @@ contextBridge.exposeInMainWorld("ash", {
   onStateUpdate: (callback: (payload: StateUpdatePayload) => void) => {
     ipcRenderer.on(IPC.STATE_UPDATE, (_event, payload: StateUpdatePayload) => callback(payload));
   },
-  // Left-click on a bubble — main process focuses the agent's app via osascript.
-  clickBubble: (agent: string | null) => {
-    ipcRenderer.send(IPC.BUBBLE_CLICK, { agent });
+  // Left-click on a bubble — main process deep-links to the session (Phase 12C).
+  // Passes session metadata so main can open the specific session file (Tier 2).
+  // Falls back to terminal/app focus if metadata is absent (Tier 1).
+  clickBubble: (agent: string | null, sessionType: string | null, sessionPath: string | null, sessionId: string | null) => {
+    ipcRenderer.send(IPC.BUBBLE_CLICK, { agent, sessionType, sessionPath, sessionId });
   },
   // Phase 10A — fire-and-forget activity log from renderer (bubble spawns, etc.)
   // Renderer is sandboxed and cannot import main-process modules; relay via IPC.
