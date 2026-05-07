@@ -1,3 +1,7 @@
+// Which side of the sprite the bubble stack appears on (Phase 11A dynamic window sizing).
+// "none" = no bubbles visible; window is sprite-only.
+export type BubbleSide = "above" | "below" | "left" | "right" | "none";
+
 // All 9 valid pet states — locked vocabulary, no additions without 2 real use cases
 export type PetState =
   | "idle"
@@ -87,6 +91,33 @@ export interface AppConfig {
   bubbleMaxStack?: number;      // default 5 stacked bubbles
 }
 
+// Geometry data returned by BUBBLE_SIDE_INFO so renderer can pick bubble side.
+// All values are in screen pixels. roomAbove/Below/Left/Right = px of work-area
+// clearance on that side from the sprite center edge.
+export interface BubbleSideInfo {
+  roomAbove: number;   // px from sprite top to work-area top
+  roomBelow: number;   // px from sprite bottom to work-area bottom
+  roomLeft: number;    // px from sprite left to work-area left
+  roomRight: number;   // px from sprite right to work-area right
+}
+
+// Activity log entry shape (matches JSONL written by activity-log.ts)
+export interface ActivityLogEntry {
+  ts: string;           // ISO timestamp
+  session_id: string;
+  type: string;         // launch, state_push, bubble_spawn, wander_phase, error, shutdown_clean, crash_detected, cleared_log, …
+  data: Record<string, unknown>;
+}
+
+// Crash log entry shape (matches JSONL written by activity-log.ts detectAndLogCrash)
+export interface CrashLogEntry {
+  ts: string;
+  sessionId: string;
+  durationMs: number;
+  ipsPath: string | null;
+  lastActivityTs: string;
+}
+
 // IPC channel names for main <-> renderer communication
 export const IPC = {
   STATE_UPDATE: "state:update",        // main → renderer: {state, agent, message}
@@ -102,4 +133,11 @@ export const IPC = {
   LOGIN_SET: "login:set",                  // renderer → main (invoke): boolean
   // Phase 10A — activity log IPC (renderer → main, fire-and-forget send)
   ACTIVITY_LOG: "activity:log",            // renderer → main (send): {type: string, data: object}
+  // Phase 11A — dynamic bubble window layout
+  BUBBLE_LAYOUT: "bubble:layout",          // renderer → main (send): {side: BubbleSide, count: number}
+  BUBBLE_SIDE_INFO: "bubble:side-info",    // renderer → main (invoke): BubbleSideInfo
+  // Phase 11B — activity dashboard reads + clear
+  ACTIVITY_LOG_READ: "activity:read",      // renderer → main (invoke): ActivityLogEntry[]
+  ACTIVITY_LOG_CLEAR: "activity:clear",    // renderer → main (invoke): { ok: true }
+  CRASH_LOG_READ: "crash:read",            // renderer → main (invoke): CrashLogEntry[]
 } as const;

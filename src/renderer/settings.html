@@ -10,9 +10,41 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background: #1c1c1e;
         color: #e0e0e0;
-        padding: 24px 28px;
         font-size: 13px;
       }
+
+      /* ── Tab strip ─────────────────────────────────────────────────────────── */
+      .tab-strip {
+        display: flex;
+        gap: 0;
+        padding: 16px 28px 0;
+        border-bottom: 1px solid #38383a;
+        margin-bottom: 0;
+      }
+      .tab-btn {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: #888;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 8px 16px 10px;
+        cursor: pointer;
+        margin-bottom: -1px;
+        transition: color 120ms, border-color 120ms;
+        letter-spacing: 0.01em;
+      }
+      .tab-btn:hover { color: #cfcfd1; }
+      .tab-btn.active {
+        color: #fff;
+        border-bottom-color: #0a84ff;
+      }
+
+      /* ── Panel containers ──────────────────────────────────────────────────── */
+      .tab-panel { display: none; padding: 24px 28px; }
+      .tab-panel.active { display: block; }
+
+      /* ── Shared section styles (Settings tab) ──────────────────────────────── */
       h1 { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: #fff; }
       .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
 
@@ -110,97 +142,322 @@
         min-height: 16px;
         text-align: right;
       }
+
+      /* ── Activity tab ──────────────────────────────────────────────────────── */
+
+      /* Filter chips */
+      .filter-chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .chip {
+        background: #2a2a2c;
+        border: 1px solid #48484a;
+        border-radius: 20px;
+        color: #888;
+        font-size: 11px;
+        font-weight: 500;
+        padding: 4px 12px;
+        cursor: pointer;
+        transition: background 120ms, color 120ms, border-color 120ms;
+        user-select: none;
+      }
+      .chip.active {
+        background: #1a3557;
+        border-color: #0a84ff;
+        color: #6fb3ff;
+      }
+      .chip:hover:not(.active) { background: #38383a; color: #cfcfd1; }
+
+      /* Agent roster */
+      .agent-roster {
+        background: #2a2a2c;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+      }
+      .agent-roster-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 10px;
+      }
+      .agent-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .agent-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .agent-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .agent-name { color: #cfcfd1; font-weight: 500; }
+      .agent-last-seen { color: #666; margin-left: auto; font-size: 11px; }
+      .no-agents { color: #555; font-size: 12px; font-style: italic; }
+
+      /* Feed */
+      .feed-section-header {
+        font-size: 11px;
+        font-weight: 600;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 10px 0 6px;
+      }
+      .feed-section-header:first-child { padding-top: 0; }
+
+      .feed-entry {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 80ms;
+        min-height: 36px;
+      }
+      .feed-entry:hover { background: #2a2a2c; }
+      .feed-entry.expanded { background: #252527; }
+
+      .entry-icon {
+        font-size: 13px;
+        line-height: 1;
+        margin-top: 1px;
+        flex-shrink: 0;
+        width: 16px;
+        text-align: center;
+      }
+      .entry-body { flex: 1; min-width: 0; }
+      .entry-main {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .entry-type {
+        font-size: 12px;
+        color: #cfcfd1;
+        font-weight: 500;
+      }
+      .entry-desc {
+        font-size: 12px;
+        color: #888;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+      .entry-agent-chip {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .entry-ts {
+        font-size: 11px;
+        color: #555;
+        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Expanded JSON block */
+      .entry-detail {
+        display: none;
+        margin-top: 8px;
+        background: #1c1c1e;
+        border: 1px solid #38383a;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-family: "SF Mono", "Menlo", "Monaco", monospace;
+        font-size: 11px;
+        color: #9ca3af;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .feed-entry.expanded .entry-detail { display: block; }
+
+      /* Empty state */
+      .feed-empty {
+        color: #555;
+        font-size: 13px;
+        font-style: italic;
+        text-align: center;
+        padding: 32px 0;
+      }
+
+      /* Clear button row */
+      .activity-footer {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid #38383a;
+      }
+      .btn-danger {
+        background: #3a1a1a;
+        color: #ff453a;
+        border: 1px solid #5a2a2a;
+        padding: 6px 14px;
+        font-size: 12px;
+      }
+      .btn-danger:hover { background: #4a2020; filter: none; }
+
+      /* Feed scroll container */
+      .feed-scroll {
+        max-height: 420px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #38383a transparent;
+      }
+      .feed-scroll::-webkit-scrollbar { width: 4px; }
+      .feed-scroll::-webkit-scrollbar-thumb { background: #38383a; border-radius: 4px; }
     </style>
   </head>
   <body>
-    <h1>Desktop Ash Settings</h1>
-    <p class="subtitle">Live config at <code>~/Library/Application Support/Desktop_Ash/config.json</code></p>
 
-    <div class="section">
-      <h2>Pet</h2>
-      <div class="row">
-        <label for="pet-select">Selected pet</label>
-        <div class="control"><select id="pet-select"></select></div>
-      </div>
+    <!-- Tab strip -->
+    <div class="tab-strip">
+      <button class="tab-btn active" data-tab="settings">Settings</button>
+      <button class="tab-btn" data-tab="activity">Activity</button>
     </div>
 
-    <div class="section">
-      <h2>Overlay</h2>
-      <div class="row">
-        <label for="scale">Scale on current display (<span id="display-id">?</span>)</label>
-        <div class="control">
-          <input type="range" id="scale" min="0.5" max="5" step="0.25" />
-          <span class="value" id="scale-value">—</span>
+    <!-- Settings panel (existing content, wrapped) -->
+    <div class="tab-panel active" id="panel-settings">
+      <h1>Desktop Ash Settings</h1>
+      <p class="subtitle">Live config at <code>~/Library/Application Support/Desktop_Ash/config.json</code></p>
+
+      <div class="section">
+        <h2>Pet</h2>
+        <div class="row">
+          <label for="pet-select">Selected pet</label>
+          <div class="control"><select id="pet-select"></select></div>
         </div>
       </div>
-    </div>
 
-    <div class="section">
-      <h2>Idle Wander</h2>
-      <div class="row">
-        <label for="wander-enabled">Enable wander</label>
-        <div class="control"><input type="checkbox" id="wander-enabled" /></div>
-      </div>
-      <div class="row">
-        <label for="wander-delay">Delay before wander (seconds)</label>
-        <div class="control">
-          <input type="range" id="wander-delay" min="10" max="300" step="5" />
-          <span class="value" id="wander-delay-value">—</span>
+      <div class="section">
+        <h2>Overlay</h2>
+        <div class="row">
+          <label for="scale">Scale on current display (<span id="display-id">?</span>)</label>
+          <div class="control">
+            <input type="range" id="scale" min="0.5" max="5" step="0.25" />
+            <span class="value" id="scale-value">—</span>
+          </div>
         </div>
       </div>
-      <div class="row">
-        <label for="wander-speed">Walk speed (px/sec)</label>
-        <div class="control">
-          <input type="range" id="wander-speed" min="50" max="400" step="25" />
-          <span class="value" id="wander-speed-value">—</span>
+
+      <div class="section">
+        <h2>Idle Wander</h2>
+        <div class="row">
+          <label for="wander-enabled">Enable wander</label>
+          <div class="control"><input type="checkbox" id="wander-enabled" /></div>
+        </div>
+        <div class="row">
+          <label for="wander-delay">Delay before wander (seconds)</label>
+          <div class="control">
+            <input type="range" id="wander-delay" min="10" max="300" step="5" />
+            <span class="value" id="wander-delay-value">—</span>
+          </div>
+        </div>
+        <div class="row">
+          <label for="wander-speed">Walk speed (px/sec)</label>
+          <div class="control">
+            <input type="range" id="wander-speed" min="50" max="400" step="25" />
+            <span class="value" id="wander-speed-value">—</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="section">
-      <h2>Speech Bubbles</h2>
-      <div class="row">
-        <label for="bubble-enabled">Enable bubbles</label>
-        <div class="control"><input type="checkbox" id="bubble-enabled" /></div>
-      </div>
-      <div class="row">
-        <label for="bubble-lifetime">Bubble lifetime (seconds)</label>
-        <div class="control">
-          <input type="range" id="bubble-lifetime" min="3" max="30" step="1" />
-          <span class="value" id="bubble-lifetime-value">—</span>
+      <div class="section">
+        <h2>Speech Bubbles</h2>
+        <div class="row">
+          <label for="bubble-enabled">Enable bubbles</label>
+          <div class="control"><input type="checkbox" id="bubble-enabled" /></div>
+        </div>
+        <div class="row">
+          <label for="bubble-lifetime">Bubble lifetime (seconds)</label>
+          <div class="control">
+            <input type="range" id="bubble-lifetime" min="3" max="30" step="1" />
+            <span class="value" id="bubble-lifetime-value">—</span>
+          </div>
+        </div>
+        <div class="row">
+          <label for="bubble-stack">Max stacked bubbles</label>
+          <div class="control">
+            <input type="range" id="bubble-stack" min="1" max="10" step="1" />
+            <span class="value" id="bubble-stack-value">—</span>
+          </div>
         </div>
       </div>
-      <div class="row">
-        <label for="bubble-stack">Max stacked bubbles</label>
-        <div class="control">
-          <input type="range" id="bubble-stack" min="1" max="10" step="1" />
-          <span class="value" id="bubble-stack-value">—</span>
+
+      <div class="section">
+        <h2>Codex Bridge</h2>
+        <div class="row">
+          <label for="codex-enabled">Enable Codex Desktop bridge</label>
+          <div class="control"><input type="checkbox" id="codex-enabled" /></div>
+        </div>
+        <p class="note">Restart Desktop Ash for Codex bridge changes to take effect.</p>
+      </div>
+
+      <div class="section">
+        <h2>Startup</h2>
+        <div class="row">
+          <label for="login-enabled">Open at login</label>
+          <div class="control"><input type="checkbox" id="login-enabled" /></div>
         </div>
       </div>
-    </div>
 
-    <div class="section">
-      <h2>Codex Bridge</h2>
-      <div class="row">
-        <label for="codex-enabled">Enable Codex Desktop bridge</label>
-        <div class="control"><input type="checkbox" id="codex-enabled" /></div>
+      <div class="actions">
+        <button class="btn-cancel" id="btn-cancel">Cancel</button>
+        <button class="btn-apply" id="btn-apply">Apply</button>
       </div>
-      <p class="note">Restart Desktop Ash for Codex bridge changes to take effect.</p>
+      <p class="status" id="status"></p>
     </div>
 
-    <div class="section">
-      <h2>Startup</h2>
-      <div class="row">
-        <label for="login-enabled">Open at login</label>
-        <div class="control"><input type="checkbox" id="login-enabled" /></div>
+    <!-- Activity panel -->
+    <div class="tab-panel" id="panel-activity">
+
+      <!-- Filter chips -->
+      <div class="filter-chips" id="filter-chips">
+        <div class="chip active" data-filter="all">All</div>
+        <div class="chip active" data-filter="bubble">Bubbles</div>
+        <div class="chip active" data-filter="wander">Wander</div>
+        <div class="chip active" data-filter="state">State</div>
+        <div class="chip active" data-filter="error">Errors</div>
+        <div class="chip active" data-filter="session">Sessions</div>
+      </div>
+
+      <!-- Connected agents roster -->
+      <div class="agent-roster">
+        <div class="agent-roster-title">Connected Agents</div>
+        <div class="agent-list" id="agent-list">
+          <div class="no-agents">No active agents</div>
+        </div>
+      </div>
+
+      <!-- Time-grouped feed -->
+      <div class="feed-scroll" id="activity-feed">
+        <div class="feed-empty">Loading activity…</div>
+      </div>
+
+      <div class="activity-footer">
+        <button class="btn-danger" id="btn-clear-log">Clear Log</button>
       </div>
     </div>
-
-    <div class="actions">
-      <button class="btn-cancel" id="btn-cancel">Cancel</button>
-      <button class="btn-apply" id="btn-apply">Apply</button>
-    </div>
-    <p class="status" id="status"></p>
 
     <script type="module" src="./settings.ts"></script>
   </body>

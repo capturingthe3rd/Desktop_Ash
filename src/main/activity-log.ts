@@ -194,6 +194,80 @@ function detectAndLogCrash(prev: HeartbeatData): void {
 export { getLogsDir };
 
 /**
+ * Read the last N entries from activity.jsonl.
+ * Tolerates malformed lines by skipping them.
+ */
+export function readActivityLog(limit = 500): import("../shared/types.js").ActivityLogEntry[] {
+  const logPath = activityLogPath();
+  if (!fs.existsSync(logPath)) return [];
+  try {
+    const lines = fs.readFileSync(logPath, "utf-8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0);
+    const tail = lines.slice(-limit);
+    const entries: import("../shared/types.js").ActivityLogEntry[] = [];
+    for (const line of tail) {
+      try {
+        entries.push(JSON.parse(line) as import("../shared/types.js").ActivityLogEntry);
+      } catch {
+        // Malformed line — skip, don't crash the dashboard
+      }
+    }
+    return entries.reverse(); // newest-first for the UI
+  } catch (err) {
+    console.warn("[activity-log] readActivityLog error:", err);
+    return [];
+  }
+}
+
+/**
+ * Read the last N entries from crashes.jsonl.
+ * Tolerates malformed lines by skipping them.
+ */
+export function readCrashLog(limit = 100): import("../shared/types.js").CrashLogEntry[] {
+  const logPath = crashLogPath();
+  if (!fs.existsSync(logPath)) return [];
+  try {
+    const lines = fs.readFileSync(logPath, "utf-8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0);
+    const tail = lines.slice(-limit);
+    const entries: import("../shared/types.js").CrashLogEntry[] = [];
+    for (const line of tail) {
+      try {
+        entries.push(JSON.parse(line) as import("../shared/types.js").CrashLogEntry);
+      } catch {
+        // skip
+      }
+    }
+    return entries.reverse();
+  } catch (err) {
+    console.warn("[activity-log] readCrashLog error:", err);
+    return [];
+  }
+}
+
+/**
+ * Clear the activity and crash logs. Writes a cleared_log marker so the
+ * dashboard shows when the last clear happened.
+ */
+export function clearActivityLog(): void {
+  markCleanShutdown();
+  try {
+    const logPath = activityLogPath();
+    const crashPath = crashLogPath();
+    if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
+    if (fs.existsSync(crashPath)) fs.unlinkSync(crashPath);
+    if (fs.existsSync(heartbeatPath())) fs.unlinkSync(heartbeatPath());
+    // Write a fresh marker so the UI has something to show
+    logActivity("cleared_log", { clearedAt: new Date().toISOString() });
+    console.log("[activity-log] activity + crash logs cleared");
+  } catch (err) {
+    console.warn("[activity-log] clearActivityLog error:", err);
+  }
+}
+
+/**
  * Path to the most recent crash report .ips file that still exists on disk,
  * or null if no crashes have been recorded or all .ips paths have been deleted.
  * Used by the tray "Last Crash Report" menu item.

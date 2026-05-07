@@ -6,11 +6,26 @@ directories:
   output: release
 
 mac:
+  category: public.app-category.utilities
   target:
     - target: dmg
-      arch: arm64
-  category: public.app-category.utilities
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
   hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize:
+    teamId: ${env.APPLE_TEAM_ID}
+
+publish:
+  provider: github
+  owner: capturingthe3rd
+  repo: Desktop_Ash
+  releaseType: release
+
+afterSign: build/notarize.js
 
 files:
   - dist/**/*

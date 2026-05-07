@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, app } from "electron";
 import { IPC } from "../shared/types.js";
 import { scanPets, resolveSpritesheetPath } from "./pet-scanner.js";
 import { loadConfig, saveConfig } from "./config.js";
+import { readActivityLog, readCrashLog, clearActivityLog } from "./activity-log.js";
 
 // Register all IPC handlers for renderer↔main communication.
 // Separated here so main.ts stays readable.
@@ -47,6 +48,20 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.LOGIN_SET, (_event, openAtLogin: boolean) => {
     app.setLoginItemSettings({ openAtLogin, openAsHidden: false });
     return app.getLoginItemSettings().openAtLogin;
+  });
+
+  // Phase 11B — activity dashboard
+  ipcMain.handle(IPC.ACTIVITY_LOG_READ, () => {
+    return readActivityLog(500);
+  });
+
+  ipcMain.handle(IPC.CRASH_LOG_READ, () => {
+    return readCrashLog(100);
+  });
+
+  ipcMain.handle(IPC.ACTIVITY_LOG_CLEAR, () => {
+    clearActivityLog();
+    return { ok: true };
   });
 }
 

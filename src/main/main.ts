@@ -1,4 +1,5 @@
-import { app, BrowserWindow, protocol, net, ipcMain, screen, Menu } from "electron";
+import { app, BrowserWindow, protocol, net, ipcMain, screen, Menu, dialog, Notification } from "electron";
+import { autoUpdater } from "electron-updater";
 import { exec } from "child_process";
 import path from "path";
 import { loadConfig, saveConfig } from "./config.js";
@@ -415,6 +416,47 @@ app.whenReady().then(() => {
   // Activity log must init before any window creation so the launch event and
   // crash detection run before anything else can write to the log.
   initActivityLog();
+
+  // Auto-updater: only active in packaged builds. In dev (npm start) app.isPackaged
+  // is false, so this block is a complete no-op — no network calls, no dialogs.
+  if (app.isPackaged) {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on("update-available", (info) => {
+      console.log(`[updater] update available: ${info.version}`);
+      new Notification({
+        title: "Desktop Ash update available",
+        body: `Version ${info.version} is downloading in the background.`,
+      }).show();
+    });
+
+    autoUpdater.on("update-downloaded", (info) => {
+      console.log(`[updater] update downloaded: ${info.version}`);
+      dialog.showMessageBox({
+        type: "info",
+        title: "Update ready",
+        message: `Desktop Ash ${info.version} is ready to install.`,
+        buttons: ["Restart now", "Later"],
+        defaultId: 0,
+      }).then(({ response }) => {
+        if (response === 0) {
+          autoUpdater.quitAndInstall();
+        }
+      }).catch((err) => {
+        console.log(`[updater] dialog error: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    });
+
+    autoUpdater.on("error", (err) => {
+      console.log(`[updater] error: ${err instanceof Error ? err.message : String(err)}`);
+    });
+
+    // Check once on launch; electron-updater handles the GitHub Releases polling.
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      console.log(`[updater] checkForUpdatesAndNotify error: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
 
   // Log every state push — agent and hasMessage only, never the message body.
   queue.subscribe((state, agent, message) => {

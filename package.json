@@ -10,9 +10,12 @@
     "build": "npm run build:main && npm run build:renderer",
     "start": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
     "launch": "ELECTRON_RUN_AS_NODE= electron .",
-    "dev": "concurrently \"tsc -p tsconfig.main.json --watch\" \"vite\""
+    "dev": "concurrently \"tsc -p tsconfig.main.json --watch\" \"vite\"",
+    "dist": "npm run build && electron-builder --mac --publish=never",
+    "release": "npm run build && electron-builder --mac --publish=always"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@types/node": "^25.6.0",
     "concurrently": "^9.1.2",
     "electron": "^42.0.0",
@@ -20,15 +23,8 @@
     "typescript": "^5.7.3",
     "vite": "^6.1.0"
   },
-  "build": {
-    "appId": "com.capturingthe3rd.desktop-ash",
-    "productName": "Desktop Ash",
-    "mac": {
-      "target": "dmg",
-      "category": "public.app-category.utilities"
-    }
-  },
   "dependencies": {
-    "chokidar": "^5.0.0"
+    "chokidar": "^5.0.0",
+    "electron-updater": "^6.8.3"
   }
 }

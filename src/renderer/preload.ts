@@ -17,6 +17,13 @@ const IPC = {
   LOGIN_SET: "login:set",
   // Phase 10A — activity log (renderer → main, fire-and-forget)
   ACTIVITY_LOG: "activity:log",
+  // Phase 11A — dynamic bubble window layout
+  BUBBLE_LAYOUT: "bubble:layout",
+  BUBBLE_SIDE_INFO: "bubble:side-info",
+  // Phase 11B — activity dashboard reads + clear
+  ACTIVITY_LOG_READ: "activity:read",
+  ACTIVITY_LOG_CLEAR: "activity:clear",
+  CRASH_LOG_READ: "crash:read",
 } as const;
 
 interface StateUpdatePayload {
@@ -44,10 +51,20 @@ contextBridge.exposeInMainWorld("ash", {
   logActivity: (type: string, data: object) => {
     ipcRenderer.send(IPC.ACTIVITY_LOG, { type, data });
   },
+  // Phase 11A — query main for sprite clearance geometry so renderer can pick side.
+  getBubbleSideInfo: (): Promise<unknown> => ipcRenderer.invoke(IPC.BUBBLE_SIDE_INFO),
+  // Phase 11A — notify main of bubble layout change so it can resize the window.
+  sendBubbleLayout: (side: string, count: number) => {
+    ipcRenderer.send(IPC.BUBBLE_LAYOUT, { side, count });
+  },
   // Phase 9 settings window APIs
   getSettings: (): Promise<unknown> => ipcRenderer.invoke(IPC.SETTINGS_GET),
   saveSettings: (partial: unknown): Promise<unknown> => ipcRenderer.invoke(IPC.SETTINGS_SAVE, partial),
   getCurrentDisplayId: (): Promise<string | null> => ipcRenderer.invoke(IPC.SETTINGS_GET_DISPLAY_ID),
   getOpenAtLogin: (): Promise<boolean> => ipcRenderer.invoke(IPC.LOGIN_GET),
   setOpenAtLogin: (openAtLogin: boolean): Promise<boolean> => ipcRenderer.invoke(IPC.LOGIN_SET, openAtLogin),
+  // Phase 11B — activity dashboard
+  readActivityLog: (): Promise<unknown[]> => ipcRenderer.invoke(IPC.ACTIVITY_LOG_READ),
+  readCrashLog: (): Promise<unknown[]> => ipcRenderer.invoke(IPC.CRASH_LOG_READ),
+  clearActivityLog: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.ACTIVITY_LOG_CLEAR),
 });
