@@ -39,6 +39,9 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
   const enabled = cfg.idleWanderEnabled ?? true;
   const delayMs = cfg.idleWanderDelayMs ?? 60000;
   const speedPxPerSec = cfg.idleWanderSpeedPxPerSec ?? 150;
+  const restBehaviorsEnabled = cfg.wanderRestBehaviorsEnabled ?? true;
+  const yawnAfterMs = cfg.longIdleYawnAfterMs ?? 300_000;   // 5 min
+  const sleepAfterMs = cfg.longIdleSleepAfterMs ?? 1_800_000; // 30 min
 
   let phase: WanderPhase = "dormant";
   let armedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -67,6 +70,91 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
   let sessionMaxRandomWalks = 0;
   // True for the duration of a single home-return walk; resets after arrival.
   let isReturningHome = false;
+
+  // ------------------------------------------------------------------
+  // Long-idle tracking (Phase 7D)
+  // Tracks when Ash last had any meaningful activity (wander move, real state push,
+  // user drag). When this timestamp ages past yawnAfterMs/sleepAfterMs AND the
+  // current queue state is idle AND wander is dormant, the long-idle behaviors fire.
+  // ------------------------------------------------------------------
+  let lastActivityTs = Date.now();
+  let longIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  // True while a yawn cycle is in progress — prevents stacking yawns.
+  let yawnInFlight = false;
+  // True while sleeping state is being held. Cleared on any interrupting push.
+  let holdingSleep = false;
+
+  function resetActivityClock(): void {
+    lastActivityTs = Date.now();
+    yawnInFlight = false;
+    holdingSleep = false;
+    scheduleLongIdleCheck();
+  }
+
+  function clearLongIdleTimer(): void {
+    if (longIdleTimer !== null) {
+      clearTimeout(longIdleTimer);
+      longIdleTimer = null;
+    }
+  }
+
+  function scheduleLongIdleCheck(): void {
+    clearLongIdleTimer();
+    // Schedule the earliest possible trigger: yawnAfterMs from now.
+    // The check itself handles the sleep threshold and yawn-vs-sleep decision.
+    longIdleTimer = setTimeout(checkLongIdle, yawnAfterMs);
+  }
+
+  function checkLongIdle(): void {
+    longIdleTimer = null;
+    // Long-idle only fires when wander is truly dormant and the queue is at idle.
+    // If wander is active (armed/walking/resting) the activity clock is already
+    // being reset by wander itself, so this path won't be reached in steady state.
+    if (phase !== "dormant" || queue.getCurrent().state !== "idle") {
+      // Not in a quiet idle — reschedule for a shorter recheck (30s).
+      longIdleTimer = setTimeout(checkLongIdle, 30_000);
+      return;
+    }
+
+    const idleDurationMs = Date.now() - lastActivityTs;
+
+    if (idleDurationMs >= sleepAfterMs && !holdingSleep) {
+      holdingSleep = true;
+      console.log(`[wander] long-idle: ${Math.round(idleDurationMs / 60000)}min idle → entering sleeping (held)`);
+      logActivity("wander_long_idle", { trigger: "sleeping", idleDurationMs });
+      // Push sleeping at wander priority with no explicit TTL so the queue picks
+      // up DEFAULT_TTL_MS["sleeping"] = null (sticky loop). Any real push at
+      // priority >= 0 outranks priority -2 and interrupts automatically.
+      queue.push("sleeping", { priority: -2, agent: "wander" });
+      // No reschedule — we stay sleeping until interrupted (handled in notifyStateChange).
+      return;
+    }
+
+    if (idleDurationMs >= yawnAfterMs && !yawnInFlight && !holdingSleep) {
+      yawnInFlight = true;
+      console.log(`[wander] long-idle: ${Math.round(idleDurationMs / 60000)}min idle → yawning`);
+      logActivity("wander_long_idle", { trigger: "yawning", idleDurationMs });
+      pushWanderState("yawning", 3000);
+      // After yawn TTL, return to idle and schedule next check in 30-60s range.
+      const nextYawnMs = 30_000 + Math.random() * 30_000;
+      longIdleTimer = setTimeout(() => {
+        longIdleTimer = null;
+        yawnInFlight = false;
+        // Push idle to ensure renderer settles back, then reschedule.
+        if (queue.getCurrent().state !== "idle") {
+          // Something else took over; let notifyStateChange handle rescheduling.
+          return;
+        }
+        // Check if we've crossed into sleep territory by now.
+        checkLongIdle();
+      }, 3000 + nextYawnMs);
+      return;
+    }
+
+    // Not yet at yawn threshold — reschedule for the remaining gap.
+    const remainingMs = Math.max(1000, yawnAfterMs - idleDurationMs);
+    longIdleTimer = setTimeout(checkLongIdle, remainingMs);
+  }
 
   // ------------------------------------------------------------------
   // Helpers
@@ -100,6 +188,9 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     clearArmedTimer();
     clearWalkTick();
     clearRestTimer();
+    // Cancel any pending long-idle check — wander going dormant means the idle
+    // clock starts fresh from this moment, not from when Ash last rested.
+    clearLongIdleTimer();
     target = null;
     phase = "dormant";
     logActivity("wander_phase", { from, to: "dormant", reason });
@@ -331,57 +422,154 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     }, 16);
   }
 
+  // Weighted random rest behavior pick. Returns the behavior key for logging.
+  // Weights must sum to 1.0.
+  //
+  // | Weight | Behavior                                          |
+  // |--------|---------------------------------------------------|
+  // |  0.40  | idle (pause, head still)                         |
+  // |  0.15  | sitting → happy-sit after ~1s (sit then wiggle)  |
+  // |  0.10  | looking-around                                    |
+  // |  0.10  | sniffing-ground                                   |
+  // |  0.08  | stretching                                        |
+  // |  0.07  | scratching-ear                                    |
+  // |  0.05  | head-tilt-curious                                 |
+  // |  0.03  | rolling-belly-up                                  |
+  // |  0.02  | skip rest — immediate new walk                    |
+  function pickRestBehavior(): {
+    action: string;
+    restMs: number;
+    push: () => void;
+  } {
+    const r = Math.random();
+    // 2-4s hold range shared by most behaviors
+    const holdMs = 2000 + Math.random() * 2000;
+
+    if (r < 0.02) {
+      // Immediate new walk — no rest
+      return { action: "skip-rest", restMs: 0, push: () => {} };
+    } else if (r < 0.05) {
+      // rolling-belly-up (cumulative 0.02-0.05)
+      return {
+        action: "rolling-belly-up",
+        restMs: holdMs,
+        push: () => pushWanderState("rolling-belly-up", holdMs + 500),
+      };
+    } else if (r < 0.10) {
+      // head-tilt-curious (cumulative 0.05-0.10)
+      return {
+        action: "head-tilt-curious",
+        restMs: holdMs,
+        push: () => pushWanderState("head-tilt-curious", holdMs + 500),
+      };
+    } else if (r < 0.17) {
+      // scratching-ear (cumulative 0.10-0.17)
+      return {
+        action: "scratching-ear",
+        restMs: holdMs,
+        push: () => pushWanderState("scratching-ear", holdMs + 500),
+      };
+    } else if (r < 0.25) {
+      // stretching (cumulative 0.17-0.25)
+      return {
+        action: "stretching",
+        restMs: holdMs,
+        push: () => pushWanderState("stretching", holdMs + 500),
+      };
+    } else if (r < 0.35) {
+      // sniffing-ground (cumulative 0.25-0.35)
+      return {
+        action: "sniffing-ground",
+        restMs: holdMs,
+        push: () => pushWanderState("sniffing-ground", holdMs + 500),
+      };
+    } else if (r < 0.45) {
+      // looking-around (cumulative 0.35-0.45)
+      return {
+        action: "looking-around",
+        restMs: holdMs,
+        push: () => pushWanderState("looking-around", holdMs + 500),
+      };
+    } else if (r < 0.60) {
+      // sitting → happy-sit after ~1s (cumulative 0.45-0.60)
+      // Push sitting with explicit 1000ms TTL (overrides the null sticky default
+      // just for wander's transition — we want it to decay so happy-sit can follow).
+      const sitMs = 1000 + Math.random() * 300;
+      return {
+        action: "sitting-to-happy-sit",
+        restMs: sitMs + holdMs,
+        push: () => {
+          pushWanderState("sitting", sitMs + 200);
+          // happy-sit fires after sitMs via the restTimer in enterResting — no
+          // additional timer needed here; the outer restTimer covers the full
+          // sitMs + holdMs window. We push happy-sit at the midpoint via a
+          // nested setTimeout so it lands as sitting decays.
+          setTimeout(() => {
+            if (phase !== "resting") return;
+            pushWanderState("happy-sit", holdMs + 300);
+          }, sitMs);
+        },
+      };
+    } else {
+      // idle pause — 40% weight (cumulative 0.60-1.00)
+      const idleMs = 2000 + Math.random() * 2000;
+      return {
+        action: "idle-pause",
+        restMs: idleMs,
+        push: () => pushWanderState("idle", idleMs + 500),
+      };
+    }
+  }
+
   function enterResting(): void {
     phase = "resting";
     console.log("[wander] walking → resting");
     logActivity("wander_phase", { from: "walking", to: "resting", reason: "arrived_at_target" });
+    // Arriving counts as activity — reset the long-idle clock so yawn/sleep
+    // timers don't fire in the middle of an active wander session.
+    resetActivityClock();
 
-    // Weighted random rest behavior
-    const roll = Math.random();
-    let restMs: number;
-    let nextState: PetState;
-    let pause: number;
+    // When rest behaviors are disabled, fall back to the original idle-only behavior.
+    if (!restBehaviorsEnabled) {
+      const idleMs = 2000 + Math.random() * 2000;
+      pushWanderState("idle", idleMs + 500);
+      restTimer = setTimeout(() => {
+        restTimer = null;
+        if (phase !== "resting") return;
+        if (walksThisSession >= sessionMaxRandomWalks) {
+          returnHomeNext = true;
+          console.log(`[wander] session cap reached (${walksThisSession}/${sessionMaxRandomWalks}), heading home`);
+        }
+        phase = "dormant";
+        startWalking();
+      }, idleMs);
+      return;
+    }
 
-    if (roll < 0.50) {
-      // 50%: idle for 2-4 seconds
-      nextState = "idle";
-      pause = 2000 + Math.random() * 2000;
-      pushWanderState("idle", pause + 500);
-      restMs = pause;
-    } else if (roll < 0.75) {
-      // 25%: waving
-      nextState = "idle"; // after wave decays, go walking again
-      pause = 1500 + 200; // wave TTL + small buffer
-      pushWanderState("waving", 1500);
-      restMs = pause;
-    } else if (roll < 0.90) {
-      // 15%: jumping
-      nextState = "idle";
-      pause = 1500 + 200;
-      pushWanderState("jumping", 1500);
-      restMs = pause;
-    } else {
-      // 10%: immediately pick new target (no pause). Still respect session cap.
-      console.log("[wander] resting → walking (immediate, no pause)");
-      phase = "dormant"; // startWalking will set it to walking
+    const { action, restMs, push } = pickRestBehavior();
+
+    if (action === "skip-rest") {
+      console.log("[wander] resting → walking (skip-rest, immediate)");
+      phase = "dormant";
       if (walksThisSession >= sessionMaxRandomWalks) returnHomeNext = true;
       startWalking();
       return;
     }
 
-    console.log(`[wander] resting action=${nextState === "idle" && roll < 0.50 ? "idle-pause" : roll < 0.75 ? "waving" : "jumping"} pauseMs=${Math.round(restMs)}`);
+    push();
+    console.log(`[wander] resting action=${action} pauseMs=${Math.round(restMs)}`);
+    logActivity("wander_rest", { action, restMs: Math.round(restMs) });
 
     restTimer = setTimeout(() => {
       restTimer = null;
-      if (phase !== "resting") return; // interrupted
-      // Session cap check: if we've done all our random walks, head home next.
+      if (phase !== "resting") return; // interrupted by real push
       if (walksThisSession >= sessionMaxRandomWalks) {
         returnHomeNext = true;
         console.log(`[wander] session cap reached (${walksThisSession}/${sessionMaxRandomWalks}), heading home`);
       } else {
         console.log("[wander] resting → walking (new random target)");
       }
-      phase = "dormant"; // startWalking will set it to walking
+      phase = "dormant";
       startWalking();
     }, restMs);
   }
@@ -439,7 +627,7 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
       if (agent === "wander") return;
 
       if (state === "idle") {
-        // Queue settled to idle — arm the wander timer if not already running
+        // Queue settled to idle — arm the wander timer if not already running.
         if (phase === "dormant") {
           phase = "armed";
           console.log(`[wander] dormant → armed (idle, will wander in ${delayMs}ms)`);
@@ -450,11 +638,19 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
             startWalking();
           }, delayMs);
         }
-        // Already armed or walking/resting — leave as-is
+        // Already armed or walking/resting — leave as-is.
+        // Either way: when the queue returns to idle and wander is not going to fire
+        // immediately (because it's already armed/walking/resting), start the
+        // long-idle clock so yawn/sleep can trigger if nothing happens for a while.
+        scheduleLongIdleCheck();
         return;
       }
 
-      // Non-idle state from a real push (agent !== "wander", filtered above).
+      // Non-idle state from a real push (agent !== "wander").
+      // Reset the long-idle clock — user or an agent is active.
+      // Also clear holdingSleep so sleeping doesn't re-lock after the push decays.
+      resetActivityClock();
+
       // Set returnHomeNext so the next walk after action TTL decay heads back
       // to the user's saved home position rather than picking a random target.
       if (phase === "walking" || phase === "resting") {
@@ -476,6 +672,8 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
       // session counters. Drag is the user explicitly choosing a new spot, so
       // we want the next wander session to start fresh, not continue from
       // wherever the previous session was counting.
+      // Also resets the long-idle clock — a drag is real user interaction.
+      resetActivityClock();
       if (phase === "walking" || phase === "resting") {
         returnHomeNext = false;
         walksThisSession = 0;
@@ -515,6 +713,7 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     },
 
     stop(): void {
+      clearLongIdleTimer();
       enterDormant("app quit");
     },
   };
@@ -527,6 +726,11 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
   if (queue.getCurrent().state === "idle") {
     handle.notifyStateChange("idle", null);
   }
+
+  // Kick off the long-idle check regardless of wander armed state — even when
+  // wander is about to fire, the long-idle timer just gets reset by resetActivityClock
+  // on the next walk, so there's no double-fire risk.
+  scheduleLongIdleCheck();
 
   return handle;
 }
