@@ -1,8 +1,10 @@
-# Electron 42 + macOS 26.3 right-click crash
+# Electron 42 + macOS 26.3 right-click crash (resolved by E41 downgrade)
 
 ## Symptom
 
 Right-clicking the transparent always-on-top overlay window causes the entire Electron process to segfault (SIGSEGV / EXC_BAD_ACCESS). Crash report written to `~/Library/Logs/DiagnosticReports/Electron-*.ips`.
+
+**TL;DR resolution: this is a bug in Electron 42 specifically. Downgrade to 41.5.0 fixes it. See "Status" section at bottom.**
 
 ## Crash signature
 
@@ -60,11 +62,19 @@ Track Electron release notes for fixes related to:
 
 Once an Electron version ships the fix, remove `Menu.setApplicationMenu(null)` and re-test. The workaround is cheap to keep, but cleaner upstream.
 
-## Status as of 2026-05-07 (afternoon)
+## Status as of 2026-05-07 (afternoon — resolved)
 
-Workaround: ✅ in place at all 3 layers (browser-process context-menu intercept added after second crash)
-Outstanding verification: Capt to right-click Ash post-fix and confirm no crash
-Outstanding: filing an Electron upstream issue (deferred — low priority since workaround is stable)
+**Real fix:** downgraded Electron 42.0.0 → 41.5.0. Electron 42 is incompatible with macOS 26.3 NSEvent dispatch on transparent always-on-top windows. Electron 41 doesn't have this bug.
+
+The previous JS-level defenses (renderer preventDefault, webContents.on("context-menu"), Menu.setApplicationMenu(null), close interceptor) are kept as defense-in-depth but are not load-bearing once on 41.x. They were attempts to intercept at JS layers, but the crash occurs in the **browser process** during `NSApplication sendEvent:` — before any JS runs.
+
+**Reference data points:** Codex.app on the same macOS 26.3 uses Electron 41.2.0 (no crashes). Claude.app uses 41.5.0 (no crashes). Both run transparent always-on-top windows. They confirmed the version line is the differentiator.
+
+**Verification:** programmatic CGEvent right-click stress test (Swift helper at `/tmp/rightclick.swift` during dev) — Ash survived 19 right-clicks across single, offset, parallel-burst, and sustained-sequential patterns. Zero crash reports generated.
+
+**Re-test condition:** when Electron 43+ ships, retry the version. If the macOS NSEvent compat is fixed upstream, we can move forward off the 41.x line.
+
+**Outstanding:** file an Electron upstream issue with the crash signatures (deferred — fix is in place).
 
 ## Crash signature variants observed
 
