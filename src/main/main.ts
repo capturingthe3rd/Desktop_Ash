@@ -14,6 +14,7 @@ import { IPC } from "../shared/types.js";
 import type { PetManifest, AppConfig, BubbleSide } from "../shared/types.js";
 import { startTray } from "./tray.js";
 import { initActivityLog, logActivity, markCleanShutdown, getLogsDir, getLatestCrashReportPath, hasCrashLog } from "./activity-log.js";
+import { dispatchWebhook } from "./webhook-outbound.js";
 
 // Force userData dir to match plan-specified path (~/Library/Application Support/Desktop_Ash).
 // Without this, Electron uses package.json `name` (lowercase "desktop_ash" — npm requires lowercase).
@@ -131,10 +132,10 @@ function resizeOverlayForSide(win: BrowserWindow, side: BubbleSide, scale: numbe
 
 
 // State queue is instantiated here so server and IPC can share it.
-// Initial subscriber forwards all three args to the renderer.
-const queue = new StateQueue((state, agent, message) => {
+// Initial subscriber forwards all args to the renderer including Phase 12C session metadata.
+const queue = new StateQueue((state, agent, message, sessionId, sessionPath, sessionType) => {
   if (overlayWin && !overlayWin.isDestroyed()) {
-    broadcastState(overlayWin, state, agent, message);
+    broadcastState(overlayWin, state, agent, message, sessionId, sessionPath, sessionType);
   }
 });
 
@@ -477,8 +478,8 @@ function createOverlayWindow(): BrowserWindow {
 function openOverlay(): BrowserWindow {
   const win = createOverlayWindow();
   wanderHandle = startWanderManager(win, queue);
-  // Third arg (message) is irrelevant to wander — ignored via _message parameter.
-  const unsubscribe = queue.subscribe((state, agent, _message) => wanderHandle?.notifyStateChange(state, agent));
+  // Only state + agent matter for wander; the rest are ignored via _ prefixes.
+  const unsubscribe = queue.subscribe((state, agent, _message, _sessionId, _sessionPath, _sessionType) => wanderHandle?.notifyStateChange(state, agent));
   win.on("closed", () => {
     unsubscribe();
     wanderHandle?.stop();
@@ -557,6 +558,29 @@ app.whenReady().then(() => {
     logActivity("state_push", { state, agent, hasMessage: message !== null && message.length > 0 });
   });
 
+  // Phase 12A — outbound webhook mirror. Fires on every state transition when enabled.
+  // Error states satisfy both stateChanges and errors filters simultaneously.
+  queue.subscribe((state, agent, message) => {
+    const cfg = loadConfig();
+    const wh = cfg.webhookOutbound;
+    if (!wh?.enabled) return;
+
+    const isError = state === "failed";
+
+    if (wh.eventFilter.stateChanges || (isError && wh.eventFilter.errors)) {
+      dispatchWebhook(
+        {
+          event: isError ? "error" : "state_change",
+          state,
+          agent,
+          message,
+          timestamp: Date.now(),
+        },
+        cfg,
+      );
+    }
+  });
+
   // Relay activity log events from the sandboxed renderer process.
   ipcMain.on(IPC.ACTIVITY_LOG, (_event, payload: { type: string; data: object }) => {
     if (typeof payload?.type === "string") {
@@ -616,6 +640,23 @@ app.whenReady().then(() => {
 
     console.log(`[main] BUBBLE_LAYOUT_REQUEST clearances above=${Math.round(roomAbove)} below=${Math.round(roomBelow)} left=${Math.round(roomLeft)} right=${Math.round(roomRight)} → side=${side}`);
     resizeOverlayForSide(win, side, scale);
+
+    // Phase 12A — bubble webhook. Message lives in the renderer so we emit current queue state.
+    const bubbleCfg = loadConfig();
+    if (bubbleCfg.webhookOutbound?.enabled && bubbleCfg.webhookOutbound.eventFilter.bubbles) {
+      const current = queue.getCurrent();
+      dispatchWebhook(
+        {
+          event: "bubble",
+          state: current.state,
+          agent: current.agent,
+          message: current.message,
+          timestamp: Date.now(),
+        },
+        bubbleCfg,
+      );
+    }
+
     return side;
   });
 

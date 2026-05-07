@@ -9,6 +9,17 @@ interface PetManifest {
   description: string;
 }
 
+interface WebhookOutboundConfig {
+  enabled: boolean;
+  urls: string[];
+  bearerToken?: string;
+  eventFilter: {
+    stateChanges: boolean;
+    bubbles: boolean;
+    errors: boolean;
+  };
+}
+
 interface AppConfig {
   selectedPetId: string | null;
   codexBridgeEnabled?: boolean;
@@ -21,6 +32,7 @@ interface AppConfig {
   bubbleEnabled?: boolean;
   bubbleLifetimeMs?: number;
   bubbleMaxStack?: number;
+  webhookOutbound?: WebhookOutboundConfig;
 }
 
 interface ActivityLogEntry {
@@ -69,6 +81,13 @@ const els = {
   bubbleStack:         $<HTMLInputElement>("bubble-stack"),
   bubbleStackValue:    $<HTMLSpanElement>("bubble-stack-value"),
   codexEnabled:        $<HTMLInputElement>("codex-enabled"),
+  // Phase 12A — webhook outbound
+  webhookEnabled:      $<HTMLInputElement>("webhook-enabled"),
+  webhookUrls:         $<HTMLTextAreaElement>("webhook-urls"),
+  webhookToken:        $<HTMLInputElement>("webhook-token"),
+  whFilterState:       $<HTMLInputElement>("wh-filter-state"),
+  whFilterBubble:      $<HTMLInputElement>("wh-filter-bubble"),
+  whFilterError:       $<HTMLInputElement>("wh-filter-error"),
   loginEnabled:        $<HTMLInputElement>("login-enabled"),
   btnCancel:           $<HTMLButtonElement>("btn-cancel"),
   btnApply:            $<HTMLButtonElement>("btn-apply"),
@@ -117,6 +136,16 @@ async function loadAll(): Promise<void> {
   els.bubbleStack.value      = String(cfg.bubbleMaxStack ?? 5);
 
   els.codexEnabled.checked   = cfg.codexBridgeEnabled === true;
+
+  // Phase 12A — webhook outbound
+  const wh = cfg.webhookOutbound;
+  els.webhookEnabled.checked  = wh?.enabled === true;
+  els.webhookUrls.value       = (wh?.urls ?? []).join("\n");
+  els.webhookToken.value      = wh?.bearerToken ?? "";
+  els.whFilterState.checked   = wh?.eventFilter?.stateChanges !== false;
+  els.whFilterBubble.checked  = wh?.eventFilter?.bubbles === true;
+  els.whFilterError.checked   = wh?.eventFilter?.errors !== false;
+
   els.loginEnabled.checked   = openAtLogin;
 
   bindRangeLabel(els.scale,          els.scaleValue,          v => `${v.toFixed(2)}×`);
@@ -130,6 +159,12 @@ async function applyChanges(): Promise<void> {
   els.status.textContent = "Saving…";
   els.status.style.color = "#888";
 
+  // Parse webhook URLs: split on newlines, trim each, drop blanks.
+  const webhookUrls = els.webhookUrls.value
+    .split("\n")
+    .map((u) => u.trim())
+    .filter((u) => u.length > 0);
+
   const partial: Partial<AppConfig> = {
     selectedPetId: els.petSelect.value || null,
     idleWanderEnabled: els.wanderEnabled.checked,
@@ -139,6 +174,18 @@ async function applyChanges(): Promise<void> {
     bubbleLifetimeMs: parseInt(els.bubbleLifetime.value, 10) * 1000,
     bubbleMaxStack: parseInt(els.bubbleStack.value, 10),
     codexBridgeEnabled: els.codexEnabled.checked,
+    // Phase 12A — webhook outbound. Bearer token omitted from partial when blank
+    // so we don't overwrite an existing token with an empty string on every save.
+    webhookOutbound: {
+      enabled: els.webhookEnabled.checked,
+      urls: webhookUrls,
+      ...(els.webhookToken.value.trim() ? { bearerToken: els.webhookToken.value.trim() } : {}),
+      eventFilter: {
+        stateChanges: els.whFilterState.checked,
+        bubbles: els.whFilterBubble.checked,
+        errors: els.whFilterError.checked,
+      },
+    },
   };
 
   if (currentDisplayId) {
@@ -192,6 +239,7 @@ function eventMeta(type: string): { icon: string; label: string; filterKey: stri
     case "wander_phase":   return { icon: "🐾", label: "Wander",        filterKey: "wander" };
     case "bubble_spawn":   return { icon: "💬", label: "Bubble",        filterKey: "bubble" };
     case "error":          return { icon: "⚠", label: "Error",         filterKey: "error" };
+    case "webhook":        return { icon: "↗", label: "Webhook",       filterKey: "webhook" };
     default:               return { icon: "·", label: type,            filterKey: "session" };
   }
 }
@@ -255,7 +303,7 @@ function shortDesc(entry: ActivityLogEntry): string {
 }
 
 // Active filter set — all on by default
-const activeFilters = new Set(["all", "bubble", "wander", "state", "error", "session"]);
+const activeFilters = new Set(["all", "bubble", "wander", "state", "error", "session", "webhook"]);
 
 function filterMatches(entry: ActivityLogEntry): boolean {
   // "all" chip presence means show everything
@@ -441,6 +489,7 @@ document.querySelectorAll<HTMLDivElement>(".chip").forEach(chip => {
         activeFilters.add("state");
         activeFilters.add("error");
         activeFilters.add("session");
+        activeFilters.add("webhook");
       } else {
         activeFilters.clear();
       }
@@ -452,7 +501,7 @@ document.querySelectorAll<HTMLDivElement>(".chip").forEach(chip => {
       } else {
         activeFilters.add(filter);
         // Re-enable "all" chip if all individual filters are now on
-        const individual = ["bubble", "wander", "state", "error", "session"];
+        const individual = ["bubble", "wander", "state", "error", "session", "webhook"];
         if (individual.every(f => activeFilters.has(f))) activeFilters.add("all");
       }
     }

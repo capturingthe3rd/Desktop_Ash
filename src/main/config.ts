@@ -21,6 +21,16 @@ const DEFAULT_CONFIG: AppConfig = {
   bubbleMaxStack: 5,
   // displayPositions and displayScales intentionally absent — avoid
   // empty-object noise in config.json before the first save.
+  // Outbound webhooks — off by default. User opts in via Settings > Webhooks.
+  webhookOutbound: {
+    enabled: false,
+    urls: [],
+    eventFilter: {
+      stateChanges: true,
+      bubbles: false,
+      errors: true,
+    },
+  },
 };
 
 export function loadConfig(): AppConfig {
