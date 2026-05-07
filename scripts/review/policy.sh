@@ -21,8 +21,13 @@
 is_secret_bearing() {
   local path="$1"
 
-  # Environment files (real secret values typically live here)
+  # Environment files (real secret values typically live here).
+  # Two patterns intentionally — they cover distinct shapes:
+  #   1. .env at filename START: .env, .env.local, src/.env, app/.env.test
+  #   2. .env as filename SUFFIX: staging.env, production.env
+  # Removing either creates a coverage gap. Do not collapse without testing both.
   [[ "$path" =~ (^|/)\.env($|\.|[^/]) ]] && return 0
+  [[ "$path" =~ \.env$ ]] && return 0
 
   # Private keys, certificates, key material
   [[ "$path" =~ \.(key|pem|p12|pfx|cer|crt|asc|gpg|jks|keystore)$ ]] && return 0
