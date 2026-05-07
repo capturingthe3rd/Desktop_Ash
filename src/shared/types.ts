@@ -2,8 +2,10 @@
 // "none" = no bubbles visible; window is sprite-only.
 export type BubbleSide = "above" | "below" | "left" | "right" | "none";
 
-// All 9 valid pet states — locked vocabulary, no additions without 2 real use cases
+// All valid pet states — rows 0-8 are the original 9-state vocabulary;
+// rows 9-25 are v3 extensions (ash-deluxe-v3 spritesheet).
 export type PetState =
+  // --- original 9 states (rows 0-8) ---
   | "idle"
   | "running"
   | "running-left"
@@ -12,9 +14,28 @@ export type PetState =
   | "jumping"
   | "failed"
   | "waiting"
-  | "review";
+  | "review"
+  // --- v3 extension states (rows 9-25) ---
+  | "thinking"
+  | "sitting"
+  | "looking-around"
+  | "happy-sit"
+  | "stretching"
+  | "sleeping"
+  | "yawning"
+  | "scratching-ear"
+  | "sniffing-ground"
+  | "head-tilt-curious"
+  | "begging-paws-up"
+  | "bouncing-excited"
+  | "spinning-circle"
+  | "rolling-belly-up"
+  | "howling"
+  | "listening-alert"
+  | "reading-thinking";
 
 export const VALID_STATES: PetState[] = [
+  // rows 0-8
   "idle",
   "running",
   "running-left",
@@ -24,6 +45,24 @@ export const VALID_STATES: PetState[] = [
   "failed",
   "waiting",
   "review",
+  // rows 9-25 (v3)
+  "thinking",
+  "sitting",
+  "looking-around",
+  "happy-sit",
+  "stretching",
+  "sleeping",
+  "yawning",
+  "scratching-ear",
+  "sniffing-ground",
+  "head-tilt-curious",
+  "begging-paws-up",
+  "bouncing-excited",
+  "spinning-circle",
+  "rolling-belly-up",
+  "howling",
+  "listening-alert",
+  "reading-thinking",
 ];
 
 export function isValidState(s: string): s is PetState {

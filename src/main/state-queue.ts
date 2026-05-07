@@ -14,8 +14,11 @@ interface QueueEntry {
   sessionType: AgentSessionType | null;
 }
 
-// Default TTLs per state as specified in the plan
+// Default TTLs per state as specified in the plan.
+// v3 states: indefinite-loop states (sleeping, sitting) get null so they stay
+// until explicitly replaced; all other action states default to 3000ms.
 const DEFAULT_TTL_MS: Record<PetState, number | null> = {
+  // rows 0-8
   idle: null,          // sticky, no expiry
   waving: 1500,
   jumping: 1500,
@@ -25,6 +28,24 @@ const DEFAULT_TTL_MS: Record<PetState, number | null> = {
   "running-right": 3000,
   review: 3000,
   waiting: 3000,
+  // rows 9-25 (v3 extension)
+  thinking: 3000,
+  sitting: null,           // held state — loops until replaced
+  "looking-around": 3000,
+  "happy-sit": 3000,
+  stretching: 3000,
+  sleeping: null,          // held state — loops until replaced
+  yawning: 3000,
+  "scratching-ear": 3000,
+  "sniffing-ground": 3000,
+  "head-tilt-curious": 3000,
+  "begging-paws-up": 3000,
+  "bouncing-excited": 3000,
+  "spinning-circle": 3000,
+  "rolling-belly-up": 3000,
+  howling: 3000,
+  "listening-alert": 3000,
+  "reading-thinking": 3000,
 };
 
 // Subscribers receive state, agent label, optional message, and Phase 12C session metadata.
