@@ -161,6 +161,10 @@ export interface AppConfig {
   bubbleMaxStack?: number;      // default 5 stacked bubbles
   // Outbound webhook config (Phase 12A) — off by default
   webhookOutbound?: WebhookOutboundConfig;
+  // Long-idle behavior thresholds (Phase 7D)
+  longIdleYawnAfterMs?: number;   // default 300000 (5 min): yawn punctuation fires every 30-60s
+  longIdleSleepAfterMs?: number;  // default 1800000 (30 min): enter sleeping and hold indefinitely
+  wanderRestBehaviorsEnabled?: boolean; // default true: varied rest after each wander arrival
 }
 
 // Geometry data returned by BUBBLE_SIDE_INFO so renderer can pick bubble side.
