@@ -13,7 +13,8 @@
     "dev": "concurrently \"tsc -p tsconfig.main.json --watch\" \"vite\"",
     "dist": "npm run build && electron-builder --mac --publish=never",
     "release": "npm run build && electron-builder --mac --publish=always",
-    "stress:activity-log": "node scripts/stress-activity-log.js"
+    "stress:activity-log": "node scripts/stress-activity-log.js",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
@@ -21,6 +22,7 @@
     "concurrently": "^9.1.2",
     "electron": "^42.0.0",
     "electron-builder": "^25.1.8",
+    "husky": "^9.1.7",
     "typescript": "^5.7.3",
     "vite": "^6.1.0"
   },

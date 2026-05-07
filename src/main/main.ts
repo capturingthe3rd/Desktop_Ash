@@ -172,6 +172,11 @@ function createPickerWindow(): BrowserWindow {
   const rendererDist = path.join(app.getAppPath(), "dist/renderer");
   win.loadFile(path.join(rendererDist, "picker.html"));
 
+  // See createOverlayWindow for rationale.
+  win.webContents.on("context-menu", (event) => {
+    event.preventDefault();
+  });
+
   win.on("closed", () => {
     pickerWin = null;
   });
@@ -196,6 +201,11 @@ function createSettingsWindow(): BrowserWindow {
 
   const rendererDist = path.join(app.getAppPath(), "dist/renderer");
   win.loadFile(path.join(rendererDist, "settings.html"));
+
+  // See createOverlayWindow for rationale.
+  win.webContents.on("context-menu", (event) => {
+    event.preventDefault();
+  });
 
   win.on("closed", () => {
     settingsWin = null;
@@ -333,6 +343,16 @@ function createOverlayWindow(): BrowserWindow {
 
   const rendererDist = path.join(app.getAppPath(), "dist/renderer");
   win.loadFile(path.join(rendererDist, "index.html"));
+
+  // Browser-process right-click defense (Electron 42 + macOS 26.3).
+  // Intercept the context-menu event in the browser process BEFORE Chromium
+  // dispatches it deeper into AppKit/menu construction. Renderer-side
+  // preventDefault runs too late — by the time the event reaches the renderer,
+  // AppKit has already null-derefed inside NSApplication sendEvent: → _handleEvent:.
+  // This + Menu.setApplicationMenu(null) together close both observed crash paths.
+  win.webContents.on("context-menu", (event) => {
+    event.preventDefault();
+  });
 
   // Track which display the window is on so we can restore per-display scale
   // and per-display position when it crosses into a different monitor.

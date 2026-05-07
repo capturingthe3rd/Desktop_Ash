@@ -29,11 +29,15 @@ Likely affects other Electron transparent-window apps on the same macOS version.
 
 ## Workaround in place
 
-`Menu.setApplicationMenu(null)` called early in `main.ts` (before `app.whenReady`). Removing the global application menu changes the NSEvent dispatch path so `_updateCanQuitQuietlyAndSafely` never fires for right-click events. Cost is zero — Desktop Ash uses a tray for all user actions, no app menu needed.
+Three layers of defense, all required (renderer-only was insufficient — second crash 2026-05-07 11:56:32 reproduced via different stack frames inside `NSApplication sendEvent:` → `_handleEvent:`, never reaching the renderer):
 
-Additional defenses in `renderer.ts`:
+**Layer 1 (browser process, primary):** `webContents.on("context-menu", e => e.preventDefault())` on every BrowserWindow (overlay, picker, settings). Intercepts the right-click in the browser process before Chromium dispatches it deeper into AppKit menu construction. This is the layer that actually catches the bug — the renderer-side handlers fire too late because the crash occurs during browser-process event dispatch, before IPC to the renderer.
+
+**Layer 2 (app menu):** `Menu.setApplicationMenu(null)` called at module top of `main.ts` (before `app.whenReady`). Removes the global NSMenu so `_updateCanQuitQuietlyAndSafely` never null-derefs.
+
+**Layer 3 (renderer, backup):** in `renderer.ts`:
 1. `mousedown` capture handler `preventDefault`s right-button events outside bubble elements
-2. `contextmenu` event handler suppresses Chromium's browser context menu
+2. `contextmenu` event handler suppresses any context menu that slips through
 
 Defense in `main.ts`:
 - Drag region scoped only to the visible sprite area (not the full body)
@@ -56,8 +60,18 @@ Track Electron release notes for fixes related to:
 
 Once an Electron version ships the fix, remove `Menu.setApplicationMenu(null)` and re-test. The workaround is cheap to keep, but cleaner upstream.
 
-## Status as of 2026-05-07
+## Status as of 2026-05-07 (afternoon)
 
-Workaround: ✅ in place, in production
-Verified by: Capt confirmed earlier session no crashes after `Menu.setApplicationMenu(null)` deployed
+Workaround: ✅ in place at all 3 layers (browser-process context-menu intercept added after second crash)
+Outstanding verification: Capt to right-click Ash post-fix and confirm no crash
+Outstanding: filing an Electron upstream issue (deferred — low priority since workaround is stable)
+
+## Crash signature variants observed
+
+Both crashes have `EXC_BAD_ACCESS / KERN_INVALID_ADDRESS at 0x0` on `CrBrowserMain` thread, but the stack frame attribution differs:
+
+- **Variant 1 (original):** `objc_release` / `OBJC_CLASS_$_NSEvent` / `_updateCanQuitQuietlyAndSafely` — addressed by `Menu.setApplicationMenu(null)`.
+- **Variant 2 (2026-05-07 11:56:32):** `NSApplication sendEvent:` → `NSApplication _handleEvent:` → null-deref in symbol-stripped Electron Framework code. NOT in the menu-readiness path. Addressed by `webContents.on("context-menu")` browser-process intercept.
+
+Both are the same root bug (Electron 42 + macOS 26.3 NSEvent handling on transparent windows) surfacing through different code paths. Either path can be hit depending on app uptime and event timing — the second crash occurred after ~2 hours of uptime.
 Outstanding: filing an Electron upstream issue (deferred — low priority since workaround is stable)
