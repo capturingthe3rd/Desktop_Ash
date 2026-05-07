@@ -118,12 +118,16 @@ trap 'rm -f "$PROMPT_FILE"' EXIT
   done
 } > "$PROMPT_FILE"
 
-# Cost control: small/fast model for informational, stronger model for blocking severities.
+# Two-model design: Opus 4.7 for security-sensitive paths (any-concern),
+# Sonnet 4.6 for everything else. Opus wins on subtle authz/injection
+# reasoning where catches actually matter; Sonnet is the sweet spot for
+# everyday logic/type review. Severity still controls block-vs-warn;
+# the model just escalates when stakes do.
 case "$TIGHTEST_SEVERITY" in
-  any-concern|critical-only)
-    MODEL="claude-sonnet-4-6" ;;
+  any-concern)
+    MODEL="claude-opus-4-7" ;;
   *)
-    MODEL="claude-haiku-4-5-20251001" ;;
+    MODEL="claude-sonnet-4-6" ;;
 esac
 
 echo "[review] running claude headless ($MODEL)..."
