@@ -78,8 +78,12 @@ function stopAnimation(): void {
 }
 
 function applyFrame(row: number, col: number): void {
+  // Guard: if a state references a row beyond the loaded spritesheet, fall
+  // back to row 0 (idle). Prevents states like "thinking" (row 9) from
+  // rendering empty space when the sheet is the standard 9-row variant.
+  const safeRow = row < totalRows ? row : 0;
   const xPct = (col / (COLS - 1)) * 100;
-  const yPct = (row / (totalRows - 1)) * 100;
+  const yPct = (safeRow / (totalRows - 1)) * 100;
   petDiv.style.backgroundPosition = `${xPct}% ${yPct}%`;
 }
 
