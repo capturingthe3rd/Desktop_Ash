@@ -5,147 +5,391 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Desktop Ash · Settings</title>
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #1c1c1e;
-        color: #e0e0e0;
-        font-size: 13px;
+      /* ── Design tokens — light/dark adaptive ──────────────────────────────── */
+      :root {
+        --label-primary:   rgba(255,255,255,0.92);
+        --label-secondary: rgba(255,255,255,0.55);
+        --label-tertiary:  rgba(255,255,255,0.38);
+        --separator:       rgba(255,255,255,0.08);
+        --fill-thin:       rgba(255,255,255,0.06);
+        --fill-thick:      rgba(255,255,255,0.10);
+        --accent:          #0a84ff;
+        --accent-tint:     rgba(10,132,255,0.18);
+        --sidebar-bg:      rgba(0,0,0,0.18);
+        --danger:          #ff453a;
+        --success:         #30d158;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --label-primary:   rgba(0,0,0,0.85);
+          --label-secondary: rgba(0,0,0,0.55);
+          --label-tertiary:  rgba(0,0,0,0.30);
+          --separator:       rgba(0,0,0,0.08);
+          --fill-thin:       rgba(0,0,0,0.04);
+          --fill-thick:      rgba(0,0,0,0.08);
+          --sidebar-bg:      rgba(0,0,0,0.06);
+          --accent-tint:     rgba(10,132,255,0.12);
+        }
       }
 
-      /* ── Tab strip ─────────────────────────────────────────────────────────── */
-      .tab-strip {
-        display: flex;
-        gap: 0;
-        padding: 16px 28px 0;
-        border-bottom: 1px solid #38383a;
-        margin-bottom: 0;
+      /* ── Reset + base ─────────────────────────────────────────────────────── */
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        /* Transparent body lets vibrancy show through */
+        background: transparent;
       }
-      .tab-btn {
-        background: none;
-        border: none;
-        border-bottom: 2px solid transparent;
-        color: #888;
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        font-size: 13px;
+        color: var(--label-primary);
+        /* Subtle dark tint over the vibrancy layer — enough to make text legible */
+        background: rgba(28,28,30,0.55);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ── App shell: sidebar + content side by side ────────────────────────── */
+      .app-shell {
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      /* ── Sidebar ──────────────────────────────────────────────────────────── */
+      .sidebar {
+        width: 200px;
+        flex-shrink: 0;
+        background: var(--sidebar-bg);
+        border-right: 1px solid var(--separator);
+        display: flex;
+        flex-direction: column;
+        padding-top: 48px; /* leave room for traffic lights (hiddenInset titlebar) */
+        padding-bottom: 16px;
+        overflow: hidden;
+      }
+
+      .sidebar-nav {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 8px;
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
+      .sidebar-nav::-webkit-scrollbar { display: none; }
+
+      .sidebar-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border-radius: 7px;
+        cursor: pointer;
         font-size: 13px;
         font-weight: 500;
-        padding: 8px 16px 10px;
-        cursor: pointer;
-        margin-bottom: -1px;
-        transition: color 120ms, border-color 120ms;
-        letter-spacing: 0.01em;
+        color: var(--label-secondary);
+        transition: background 120ms ease, color 120ms ease;
+        user-select: none;
+        border: none;
+        background: transparent;
+        width: 100%;
+        text-align: left;
       }
-      .tab-btn:hover { color: #cfcfd1; }
-      .tab-btn.active {
-        color: #fff;
-        border-bottom-color: #0a84ff;
+      .sidebar-item:hover {
+        background: var(--fill-thin);
+        color: var(--label-primary);
+      }
+      .sidebar-item.active {
+        background: var(--accent-tint);
+        color: var(--accent);
+      }
+      .sidebar-item .item-icon {
+        font-size: 15px;
+        width: 20px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .sidebar-item .item-label {
+        flex: 1;
+        line-height: 1.2;
       }
 
-      /* ── Panel containers ──────────────────────────────────────────────────── */
-      .tab-panel { display: none; padding: 24px 28px; }
+      /* ── Main content area ────────────────────────────────────────────────── */
+      .content-area {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: var(--separator) transparent;
+        padding: 32px;
+        padding-top: 52px; /* align roughly with sidebar top after traffic lights */
+      }
+      .content-area::-webkit-scrollbar { width: 4px; }
+      .content-area::-webkit-scrollbar-thumb { background: var(--separator); border-radius: 4px; }
+
+      /* ── Tab panels ───────────────────────────────────────────────────────── */
+      .tab-panel { display: none; }
       .tab-panel.active { display: block; }
 
-      /* ── Shared section styles (Settings tab) ──────────────────────────────── */
-      h1 { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: #fff; }
-      .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
-
-      .section {
-        background: #2a2a2c;
-        border-radius: 10px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
-      }
-      .section h2 {
-        font-size: 12px;
+      /* ── Page header ──────────────────────────────────────────────────────── */
+      .page-title {
+        font-size: 17px;
         font-weight: 600;
-        color: #fff;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        margin-bottom: 10px;
+        color: var(--label-primary);
+        letter-spacing: -0.01em;
+        margin-bottom: 4px;
+      }
+      .page-subtitle {
+        font-size: 12px;
+        color: var(--label-secondary);
+        margin-bottom: 24px;
+      }
+      .page-subtitle code {
+        font-family: "SF Mono", "Menlo", "Monaco", monospace;
+        font-size: 11px;
+        color: var(--label-tertiary);
       }
 
+      /* ── Card sections ────────────────────────────────────────────────────── */
+      .card {
+        background: var(--fill-thin);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--separator);
+        border-radius: 12px;
+        margin-bottom: 16px;
+        overflow: hidden;
+      }
+
+      .card-header {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--label-secondary);
+        padding: 12px 16px 8px;
+      }
+
+      /* ── Rows inside cards ────────────────────────────────────────────────── */
       .row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 6px 0;
+        padding: 10px 16px;
         gap: 16px;
+        min-height: 40px;
       }
-      .row + .row { border-top: 1px solid #38383a; }
-      .row label { flex: 1; color: #cfcfd1; }
-      .row .control { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-      .row .value { font-variant-numeric: tabular-nums; color: #888; min-width: 60px; text-align: right; font-size: 12px; }
+      .row + .row {
+        border-top: 1px solid var(--separator);
+      }
+      .row label {
+        flex: 1;
+        color: var(--label-primary);
+        cursor: default;
+      }
+      .row .control {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+      }
+      .row .value {
+        font-variant-numeric: tabular-nums;
+        color: var(--label-secondary);
+        min-width: 60px;
+        text-align: right;
+        font-size: 12px;
+      }
 
-      input[type="range"] { width: 160px; }
-      input[type="checkbox"] {
-        width: 36px;
-        height: 22px;
+      /* Note text below rows */
+      .note {
+        font-size: 11px;
+        color: var(--label-tertiary);
+        padding: 4px 16px 10px;
+        line-height: 1.5;
+      }
+
+      /* ── iOS-style toggle (bumped to 40×24) ──────────────────────────────── */
+      input[type="checkbox"].toggle {
+        width: 40px;
+        height: 24px;
         appearance: none;
-        background: #444;
-        border-radius: 11px;
+        -webkit-appearance: none;
+        background: rgba(120,120,128,0.36);
+        border-radius: 12px;
         position: relative;
         cursor: pointer;
-        transition: background 150ms;
+        transition: background 150ms ease;
+        flex-shrink: 0;
       }
-      input[type="checkbox"]:checked { background: #34c759; }
-      input[type="checkbox"]::before {
+      input[type="checkbox"].toggle:checked { background: var(--success); }
+      input[type="checkbox"].toggle::before {
         content: "";
         position: absolute;
         top: 2px;
         left: 2px;
-        width: 18px;
-        height: 18px;
+        width: 20px;
+        height: 20px;
         background: #fff;
         border-radius: 50%;
-        transition: transform 150ms;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        transition: transform 150ms ease;
       }
-      input[type="checkbox"]:checked::before { transform: translateX(14px); }
+      input[type="checkbox"].toggle:checked::before { transform: translateX(16px); }
+      input[type="checkbox"].toggle:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+      /* Inline checkboxes (webhook filter row) — keep native */
+      input[type="checkbox"].native {
+        width: auto;
+        height: auto;
+        appearance: auto;
+        -webkit-appearance: auto;
+        border-radius: 3px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+
+      /* ── Range slider ─────────────────────────────────────────────────────── */
+      input[type="range"] {
+        width: 160px;
+        height: 6px;
+        appearance: none;
+        -webkit-appearance: none;
+        background: var(--fill-thick);
+        border-radius: 3px;
+        cursor: pointer;
+        outline: none;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        background: #fff;
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        cursor: pointer;
+        transition: box-shadow 120ms ease;
+      }
+      input[type="range"]:hover::-webkit-slider-thumb { box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+      input[type="range"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
+      /* ── Select ───────────────────────────────────────────────────────────── */
       select {
-        background: #38383a;
-        color: #fff;
-        border: 1px solid #48484a;
+        background: var(--fill-thick);
+        color: var(--label-primary);
+        border: 1px solid var(--separator);
         border-radius: 6px;
-        padding: 4px 8px;
+        padding: 5px 8px;
         font-size: 13px;
+        font-family: inherit;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 120ms ease;
+        -webkit-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.45)'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        padding-right: 24px;
+      }
+      @media (prefers-color-scheme: light) {
+        select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(0,0,0,0.35)'/%3E%3C/svg%3E"); }
+      }
+      select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      /* ── Textarea ─────────────────────────────────────────────────────────── */
+      textarea {
+        width: 100%;
+        background: var(--fill-thin);
+        color: var(--label-primary);
+        border: 1px solid var(--separator);
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 12px;
+        font-family: inherit;
+        resize: vertical;
+        outline: none;
+        transition: border-color 120ms ease;
+      }
+      textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      textarea::placeholder { color: var(--label-tertiary); }
+
+      /* ── Text inputs ──────────────────────────────────────────────────────── */
+      input[type="password"],
+      input[type="text"] {
+        background: var(--fill-thin);
+        color: var(--label-primary);
+        border: 1px solid var(--separator);
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-size: 12px;
+        font-family: inherit;
+        outline: none;
+        width: 180px;
+        transition: border-color 120ms ease;
+      }
+      input[type="password"]:focus,
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      input[type="password"]::placeholder,
+      input[type="text"]::placeholder { color: var(--label-tertiary); }
+
+      /* ── Textarea wrapper inside card ─────────────────────────────────────── */
+      .textarea-row {
+        padding: 8px 16px 12px;
       }
 
-      .note {
-        font-size: 11px;
-        color: #888;
-        font-style: italic;
-        margin-top: 6px;
+      /* ── Buttons ──────────────────────────────────────────────────────────── */
+      button {
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: none;
+        font-size: 13px;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition: filter 120ms ease;
       }
+      button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+      .btn-primary {
+        background: var(--accent);
+        color: #fff;
+      }
+      .btn-secondary {
+        background: var(--fill-thick);
+        color: var(--label-primary);
+      }
+      .btn-danger {
+        background: rgba(255,69,58,0.12);
+        color: var(--danger);
+        border: 1px solid rgba(255,69,58,0.25);
+        font-size: 12px;
+        padding: 6px 14px;
+      }
+      button:hover { filter: brightness(1.08); }
+      .btn-danger:hover { background: rgba(255,69,58,0.20); filter: none; }
+
+      /* ── Actions row + status ─────────────────────────────────────────────── */
       .actions {
         display: flex;
         justify-content: flex-end;
         gap: 8px;
-        margin-top: 16px;
+        margin-top: 8px;
       }
-      button {
-        padding: 8px 18px;
-        border-radius: 6px;
-        border: 0;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-      .btn-cancel { background: #48484a; color: #fff; }
-      .btn-apply  { background: #0a84ff; color: #fff; }
-      .btn-cancel:hover { filter: brightness(1.15); }
-      .btn-apply:hover  { filter: brightness(1.1); }
-
       .status {
         font-size: 12px;
-        color: #34c759;
+        color: var(--success);
         margin-top: 8px;
         min-height: 16px;
         text-align: right;
       }
 
-      /* ── Activity tab ──────────────────────────────────────────────────────── */
-
-      /* Filter chips */
+      /* Filter chips (webhook + activity) */
       .filter-chips {
         display: flex;
         gap: 6px;
@@ -153,37 +397,42 @@
         margin-bottom: 14px;
       }
       .chip {
-        background: #2a2a2c;
-        border: 1px solid #48484a;
+        background: var(--fill-thin);
+        border: 1px solid var(--separator);
         border-radius: 20px;
-        color: #888;
-        font-size: 11px;
+        color: var(--label-secondary);
+        font-size: 12px;
         font-weight: 500;
         padding: 4px 12px;
         cursor: pointer;
-        transition: background 120ms, color 120ms, border-color 120ms;
+        transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
         user-select: none;
       }
       .chip.active {
-        background: #1a3557;
-        border-color: #0a84ff;
-        color: #6fb3ff;
+        background: var(--accent-tint);
+        border-color: var(--accent);
+        color: var(--accent);
       }
-      .chip:hover:not(.active) { background: #38383a; color: #cfcfd1; }
+      .chip:hover:not(.active) { background: var(--fill-thick); color: var(--label-primary); }
+
+      /* ── Activity tab ─────────────────────────────────────────────────────── */
 
       /* Agent roster */
       .agent-roster {
-        background: #2a2a2c;
-        border-radius: 10px;
+        background: var(--fill-thin);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--separator);
+        border-radius: 12px;
         padding: 12px 14px;
         margin-bottom: 14px;
       }
       .agent-roster-title {
         font-size: 11px;
         font-weight: 600;
-        color: #888;
+        color: var(--label-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.06em;
         margin-bottom: 10px;
       }
       .agent-list {
@@ -203,15 +452,15 @@
         border-radius: 50%;
         flex-shrink: 0;
       }
-      .agent-name { color: #cfcfd1; font-weight: 500; }
-      .agent-last-seen { color: #666; margin-left: auto; font-size: 11px; }
-      .no-agents { color: #555; font-size: 12px; font-style: italic; }
+      .agent-name { color: var(--label-primary); font-weight: 500; }
+      .agent-last-seen { color: var(--label-tertiary); margin-left: auto; font-size: 11px; }
+      .no-agents { color: var(--label-tertiary); font-size: 12px; font-style: italic; }
 
       /* Feed */
       .feed-section-header {
         font-size: 11px;
         font-weight: 600;
-        color: #555;
+        color: var(--label-tertiary);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         padding: 10px 0 6px;
@@ -225,11 +474,11 @@
         padding: 9px 10px;
         border-radius: 8px;
         cursor: pointer;
-        transition: background 80ms;
+        transition: background 80ms ease;
         min-height: 36px;
       }
-      .feed-entry:hover { background: #2a2a2c; }
-      .feed-entry.expanded { background: #252527; }
+      .feed-entry:hover { background: var(--fill-thin); }
+      .feed-entry.expanded { background: var(--fill-thin); }
 
       .entry-icon {
         font-size: 13px;
@@ -248,12 +497,12 @@
       }
       .entry-type {
         font-size: 12px;
-        color: #cfcfd1;
+        color: var(--label-primary);
         font-weight: 500;
       }
       .entry-desc {
         font-size: 12px;
-        color: #888;
+        color: var(--label-secondary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -268,22 +517,23 @@
       }
       .entry-ts {
         font-size: 11px;
-        color: #555;
+        color: var(--label-tertiary);
         flex-shrink: 0;
         font-variant-numeric: tabular-nums;
+        font-family: "SF Mono", "Menlo", "Monaco", monospace;
       }
 
       /* Expanded JSON block */
       .entry-detail {
         display: none;
         margin-top: 8px;
-        background: #1c1c1e;
-        border: 1px solid #38383a;
+        background: rgba(0,0,0,0.2);
+        border: 1px solid var(--separator);
         border-radius: 6px;
         padding: 10px 12px;
         font-family: "SF Mono", "Menlo", "Monaco", monospace;
         font-size: 11px;
-        color: #9ca3af;
+        color: var(--label-secondary);
         white-space: pre-wrap;
         word-break: break-all;
         max-height: 200px;
@@ -293,215 +543,254 @@
 
       /* Empty state */
       .feed-empty {
-        color: #555;
+        color: var(--label-tertiary);
         font-size: 13px;
         font-style: italic;
         text-align: center;
         padding: 32px 0;
       }
 
-      /* Clear button row */
+      /* Clear button + footer */
       .activity-footer {
         display: flex;
         justify-content: flex-end;
         margin-top: 16px;
         padding-top: 12px;
-        border-top: 1px solid #38383a;
+        border-top: 1px solid var(--separator);
       }
-      .btn-danger {
-        background: #3a1a1a;
-        color: #ff453a;
-        border: 1px solid #5a2a2a;
-        padding: 6px 14px;
-        font-size: 12px;
-      }
-      .btn-danger:hover { background: #4a2020; filter: none; }
 
       /* Feed scroll container */
       .feed-scroll {
-        max-height: 420px;
+        max-height: 320px;
         overflow-y: auto;
         scrollbar-width: thin;
-        scrollbar-color: #38383a transparent;
+        scrollbar-color: var(--separator) transparent;
       }
       .feed-scroll::-webkit-scrollbar { width: 4px; }
-      .feed-scroll::-webkit-scrollbar-thumb { background: #38383a; border-radius: 4px; }
+      .feed-scroll::-webkit-scrollbar-thumb { background: var(--separator); border-radius: 4px; }
+
+      /* Inline checkbox label group (webhook fire-on row) */
+      .check-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--label-primary);
+        font-weight: normal;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
 
-    <!-- Tab strip -->
-    <div class="tab-strip">
-      <button class="tab-btn active" data-tab="settings">Settings</button>
-      <button class="tab-btn" data-tab="activity">Activity</button>
-    </div>
+    <div class="app-shell">
 
-    <!-- Settings panel (existing content, wrapped) -->
-    <div class="tab-panel active" id="panel-settings">
-      <h1>Desktop Ash Settings</h1>
-      <p class="subtitle">Live config at <code>~/Library/Application Support/Desktop_Ash/config.json</code></p>
-
-      <div class="section">
-        <h2>Pet</h2>
-        <div class="row">
-          <label for="pet-select">Selected pet</label>
-          <div class="control"><select id="pet-select"></select></div>
+      <!-- Sidebar navigation -->
+      <nav class="sidebar">
+        <div class="sidebar-nav">
+          <button class="sidebar-item active" data-tab="settings">
+            <span class="item-icon">⚙️</span>
+            <span class="item-label">Settings</span>
+          </button>
+          <button class="sidebar-item" data-tab="activity">
+            <span class="item-icon">📊</span>
+            <span class="item-label">Activity</span>
+          </button>
         </div>
-      </div>
+      </nav>
 
-      <div class="section">
-        <h2>Overlay</h2>
-        <div class="row">
-          <label for="scale">Scale on current display (<span id="display-id">?</span>)</label>
-          <div class="control">
-            <input type="range" id="scale" min="0.5" max="5" step="0.25" />
-            <span class="value" id="scale-value">—</span>
+      <!-- Main content area -->
+      <main class="content-area">
+
+        <!-- Settings panel -->
+        <div class="tab-panel active" id="panel-settings">
+          <h1 class="page-title">Desktop Ash Settings</h1>
+          <p class="page-subtitle">Config at <code>~/Library/Application Support/Desktop_Ash/config.json</code></p>
+
+          <!-- Pet -->
+          <div class="card">
+            <div class="card-header">Pet</div>
+            <div class="row">
+              <label for="pet-select">Selected pet</label>
+              <div class="control">
+                <select id="pet-select"></select>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div class="section">
-        <h2>Idle Wander</h2>
-        <div class="row">
-          <label for="wander-enabled">Enable wander</label>
-          <div class="control"><input type="checkbox" id="wander-enabled" /></div>
-        </div>
-        <div class="row">
-          <label for="wander-delay">Delay before wander (seconds)</label>
-          <div class="control">
-            <input type="range" id="wander-delay" min="10" max="300" step="5" />
-            <span class="value" id="wander-delay-value">—</span>
+          <!-- Overlay -->
+          <div class="card">
+            <div class="card-header">Overlay</div>
+            <div class="row">
+              <label for="scale">Scale on current display (<span id="display-id">?</span>)</label>
+              <div class="control">
+                <input type="range" id="scale" min="0.5" max="5" step="0.25" />
+                <span class="value" id="scale-value">—</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="row">
-          <label for="wander-speed">Walk speed (px/sec)</label>
-          <div class="control">
-            <input type="range" id="wander-speed" min="50" max="400" step="25" />
-            <span class="value" id="wander-speed-value">—</span>
+
+          <!-- Idle Wander -->
+          <div class="card">
+            <div class="card-header">Idle Wander</div>
+            <div class="row">
+              <label for="wander-enabled">Enable wander</label>
+              <div class="control">
+                <input type="checkbox" class="toggle" id="wander-enabled" />
+              </div>
+            </div>
+            <div class="row">
+              <label for="wander-delay">Delay before wander (seconds)</label>
+              <div class="control">
+                <input type="range" id="wander-delay" min="10" max="300" step="5" />
+                <span class="value" id="wander-delay-value">—</span>
+              </div>
+            </div>
+            <div class="row">
+              <label for="wander-speed">Walk speed (px/sec)</label>
+              <div class="control">
+                <input type="range" id="wander-speed" min="50" max="400" step="25" />
+                <span class="value" id="wander-speed-value">—</span>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div class="section">
-        <h2>Speech Bubbles</h2>
-        <div class="row">
-          <label for="bubble-enabled">Enable bubbles</label>
-          <div class="control"><input type="checkbox" id="bubble-enabled" /></div>
-        </div>
-        <div class="row">
-          <label for="bubble-lifetime">Bubble lifetime (seconds)</label>
-          <div class="control">
-            <input type="range" id="bubble-lifetime" min="3" max="30" step="1" />
-            <span class="value" id="bubble-lifetime-value">—</span>
+          <!-- Speech Bubbles -->
+          <div class="card">
+            <div class="card-header">Speech Bubbles</div>
+            <div class="row">
+              <label for="bubble-enabled">Enable bubbles</label>
+              <div class="control">
+                <input type="checkbox" class="toggle" id="bubble-enabled" />
+              </div>
+            </div>
+            <div class="row">
+              <label for="bubble-lifetime">Bubble lifetime (seconds)</label>
+              <div class="control">
+                <input type="range" id="bubble-lifetime" min="3" max="30" step="1" />
+                <span class="value" id="bubble-lifetime-value">—</span>
+              </div>
+            </div>
+            <div class="row">
+              <label for="bubble-stack">Max stacked bubbles</label>
+              <div class="control">
+                <input type="range" id="bubble-stack" min="1" max="10" step="1" />
+                <span class="value" id="bubble-stack-value">—</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="row">
-          <label for="bubble-stack">Max stacked bubbles</label>
-          <div class="control">
-            <input type="range" id="bubble-stack" min="1" max="10" step="1" />
-            <span class="value" id="bubble-stack-value">—</span>
+
+          <!-- Codex Bridge -->
+          <div class="card">
+            <div class="card-header">Codex Bridge</div>
+            <div class="row">
+              <label for="codex-enabled">Enable Codex Desktop bridge</label>
+              <div class="control">
+                <input type="checkbox" class="toggle" id="codex-enabled" />
+              </div>
+            </div>
+            <p class="note">Restart Desktop Ash for Codex bridge changes to take effect.</p>
           </div>
-        </div>
-      </div>
 
-      <div class="section">
-        <h2>Codex Bridge</h2>
-        <div class="row">
-          <label for="codex-enabled">Enable Codex Desktop bridge</label>
-          <div class="control"><input type="checkbox" id="codex-enabled" /></div>
-        </div>
-        <p class="note">Restart Desktop Ash for Codex bridge changes to take effect.</p>
-      </div>
-
-      <div class="section">
-        <h2>Webhooks</h2>
-        <div class="row">
-          <label for="webhook-enabled">Enable outbound webhooks</label>
-          <div class="control"><input type="checkbox" id="webhook-enabled" /></div>
-        </div>
-        <div class="row">
-          <label for="webhook-urls">URLs (one per line)</label>
-        </div>
-        <textarea
-          id="webhook-urls"
-          rows="3"
-          placeholder="https://hooks.slack.com/…"
-          style="width:100%;margin-top:4px;background:#1c1c1e;color:#e0e0e0;border:1px solid #48484a;border-radius:6px;padding:8px;font-size:12px;font-family:inherit;resize:vertical;"
-        ></textarea>
-        <div class="row" style="margin-top:8px;">
-          <label for="webhook-token">Bearer token (optional)</label>
-          <div class="control">
-            <input
-              type="password"
-              id="webhook-token"
-              placeholder="sk-…"
-              style="background:#1c1c1e;color:#e0e0e0;border:1px solid #48484a;border-radius:6px;padding:4px 8px;font-size:12px;width:180px;"
-            />
+          <!-- Webhooks -->
+          <div class="card">
+            <div class="card-header">Webhooks</div>
+            <div class="row">
+              <label for="webhook-enabled">Enable outbound webhooks</label>
+              <div class="control">
+                <input type="checkbox" class="toggle" id="webhook-enabled" />
+              </div>
+            </div>
+            <div class="row">
+              <label for="webhook-urls">URLs (one per line)</label>
+            </div>
+            <div class="textarea-row">
+              <textarea
+                id="webhook-urls"
+                rows="3"
+                placeholder="https://hooks.slack.com/…"
+              ></textarea>
+            </div>
+            <div class="row">
+              <label for="webhook-token">Bearer token (optional)</label>
+              <div class="control">
+                <input
+                  type="password"
+                  id="webhook-token"
+                  placeholder="sk-…"
+                />
+              </div>
+            </div>
+            <div class="row">
+              <label>Fire on</label>
+              <div class="control" style="gap: 14px;">
+                <label class="check-label">
+                  <input type="checkbox" class="native" id="wh-filter-state" /> State changes
+                </label>
+                <label class="check-label">
+                  <input type="checkbox" class="native" id="wh-filter-bubble" /> Bubbles
+                </label>
+                <label class="check-label">
+                  <input type="checkbox" class="native" id="wh-filter-error" /> Errors
+                </label>
+              </div>
+            </div>
+            <p class="note">POST JSON to each URL on the selected events. No retries — best-effort delivery.</p>
           </div>
-        </div>
-        <div class="row" style="margin-top:4px;">
-          <label>Fire on</label>
-          <div class="control" style="gap:14px;">
-            <label style="display:flex;align-items:center;gap:6px;color:#cfcfd1;font-weight:normal;">
-              <input type="checkbox" id="wh-filter-state" style="width:auto;height:auto;appearance:auto;border-radius:3px;" /> State changes
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;color:#cfcfd1;font-weight:normal;">
-              <input type="checkbox" id="wh-filter-bubble" style="width:auto;height:auto;appearance:auto;border-radius:3px;" /> Bubbles
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;color:#cfcfd1;font-weight:normal;">
-              <input type="checkbox" id="wh-filter-error" style="width:auto;height:auto;appearance:auto;border-radius:3px;" /> Errors
-            </label>
+
+          <!-- Startup -->
+          <div class="card">
+            <div class="card-header">Startup</div>
+            <div class="row">
+              <label for="login-enabled">Open at login</label>
+              <div class="control">
+                <input type="checkbox" class="toggle" id="login-enabled" />
+              </div>
+            </div>
           </div>
-        </div>
-        <p class="note">POST JSON to each URL on the selected events. No retries — best-effort delivery.</p>
-      </div>
 
-      <div class="section">
-        <h2>Startup</h2>
-        <div class="row">
-          <label for="login-enabled">Open at login</label>
-          <div class="control"><input type="checkbox" id="login-enabled" /></div>
-        </div>
-      </div>
+          <div class="actions">
+            <button class="btn-secondary" id="btn-cancel">Cancel</button>
+            <button class="btn-primary" id="btn-apply">Apply</button>
+          </div>
+          <p class="status" id="status"></p>
+        </div><!-- /panel-settings -->
 
-      <div class="actions">
-        <button class="btn-cancel" id="btn-cancel">Cancel</button>
-        <button class="btn-apply" id="btn-apply">Apply</button>
-      </div>
-      <p class="status" id="status"></p>
-    </div>
+        <!-- Activity panel -->
+        <div class="tab-panel" id="panel-activity">
+          <h1 class="page-title">Activity</h1>
+          <p class="page-subtitle" style="margin-bottom: 16px;">Live state + event log from Desktop Ash</p>
 
-    <!-- Activity panel -->
-    <div class="tab-panel" id="panel-activity">
+          <!-- Filter chips -->
+          <div class="filter-chips" id="filter-chips">
+            <div class="chip active" data-filter="all">All</div>
+            <div class="chip active" data-filter="bubble">Bubbles</div>
+            <div class="chip active" data-filter="wander">Wander</div>
+            <div class="chip active" data-filter="state">State</div>
+            <div class="chip active" data-filter="error">Errors</div>
+            <div class="chip active" data-filter="session">Sessions</div>
+            <div class="chip active" data-filter="webhook">Webhooks</div>
+          </div>
 
-      <!-- Filter chips -->
-      <div class="filter-chips" id="filter-chips">
-        <div class="chip active" data-filter="all">All</div>
-        <div class="chip active" data-filter="bubble">Bubbles</div>
-        <div class="chip active" data-filter="wander">Wander</div>
-        <div class="chip active" data-filter="state">State</div>
-        <div class="chip active" data-filter="error">Errors</div>
-        <div class="chip active" data-filter="session">Sessions</div>
-        <div class="chip active" data-filter="webhook">Webhooks</div>
-      </div>
+          <!-- Connected agents roster -->
+          <div class="agent-roster">
+            <div class="agent-roster-title">Connected Agents</div>
+            <div class="agent-list" id="agent-list">
+              <div class="no-agents">No active agents</div>
+            </div>
+          </div>
 
-      <!-- Connected agents roster -->
-      <div class="agent-roster">
-        <div class="agent-roster-title">Connected Agents</div>
-        <div class="agent-list" id="agent-list">
-          <div class="no-agents">No active agents</div>
-        </div>
-      </div>
+          <!-- Time-grouped feed -->
+          <div class="feed-scroll" id="activity-feed">
+            <div class="feed-empty">Loading activity…</div>
+          </div>
 
-      <!-- Time-grouped feed -->
-      <div class="feed-scroll" id="activity-feed">
-        <div class="feed-empty">Loading activity…</div>
-      </div>
+          <div class="activity-footer">
+            <button class="btn-danger" id="btn-clear-log">Clear Log</button>
+          </div>
+        </div><!-- /panel-activity -->
 
-      <div class="activity-footer">
-        <button class="btn-danger" id="btn-clear-log">Clear Log</button>
-      </div>
-    </div>
+      </main>
+    </div><!-- /app-shell -->
 
     <script type="module" src="./settings.ts"></script>
   </body>

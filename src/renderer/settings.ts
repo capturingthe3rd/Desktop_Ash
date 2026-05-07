@@ -434,11 +434,14 @@ async function loadActivity(): Promise<void> {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
+// Phase 11C: sidebar-item buttons replace the old horizontal .tab-btn strip.
+// The selector targets .sidebar-item; everything else (panel show/hide, polling)
+// is unchanged so the activity data flow is unaffected.
 
 let activityRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 function switchTab(tabId: string): void {
-  document.querySelectorAll<HTMLButtonElement>(".tab-btn").forEach(btn => {
+  document.querySelectorAll<HTMLButtonElement>(".sidebar-item").forEach(btn => {
     btn.classList.toggle("active", btn.dataset["tab"] === tabId);
   });
   document.querySelectorAll<HTMLDivElement>(".tab-panel").forEach(panel => {
@@ -457,7 +460,7 @@ function switchTab(tabId: string): void {
   }
 }
 
-document.querySelectorAll<HTMLButtonElement>(".tab-btn").forEach(btn => {
+document.querySelectorAll<HTMLButtonElement>(".sidebar-item").forEach(btn => {
   btn.addEventListener("click", () => {
     const tabId = btn.dataset["tab"];
     if (tabId) switchTab(tabId);

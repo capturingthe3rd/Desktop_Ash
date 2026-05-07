@@ -186,12 +186,18 @@ function createPickerWindow(): BrowserWindow {
 
 function createSettingsWindow(): BrowserWindow {
   // Singleton — only one settings window at a time. Caller checks settingsWin first.
+  // Phase 11C redesign: wider sidebar layout, macOS vibrancy glass effect.
   const win = new BrowserWindow({
-    width: 480,
-    height: 520,
+    width: 720,
+    height: 560,
     resizable: false,
     center: true,
     title: "Desktop Ash — Settings",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 20, y: 18 },
+    vibrancy: "under-window",
+    visualEffectState: "active",
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "../renderer/preload.js"),
       contextIsolation: true,
