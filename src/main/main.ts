@@ -249,7 +249,7 @@ function createOverlayWindow(): BrowserWindow {
   // can drag freely without wander fighting them.
   // (If this proves to fire for setBounds in some Electron builds, we'd see wander
   // self-cancel on every walk tick — easily spotted in /tmp/desktop_ash.log.)
-  win.on("will-move", () => {
+  win.on("will-move", (_event, newBounds) => {
     // Cancel wander FIRST so it yields before we push the drag direction.
     if (wanderHandle?.isWandering()) {
       console.log("[main] user drag detected (will-move) — yielding wander");
@@ -257,33 +257,46 @@ function createOverlayWindow(): BrowserWindow {
     }
 
     // Drag-direction running animation.
-    // will-move fires only for manual drags (not setBounds), giving us a clean
-    // signal to push running-left / running-right based on horizontal movement.
-    const currentX = win.getBounds().x;
+    // Use the newBounds parameter Electron provides — that's the proposed new
+    // position. win.getBounds() at this moment returns the OLD position which
+    // gives unreliable deltas (and bounds-jitter on click-without-drag would
+    // trigger spurious left/right alternation).
+    const currentX = newBounds.x;
+    const now = Date.now();
+
+    // Reset tracking if there's been a long gap since last will-move — means
+    // the previous drag ended. Without this, a click after a previous drag
+    // computes delta against the OLD drag's last position, causing a spurious
+    // push in the wrong direction.
+    if (lastDragPushAt > 0 && now - lastDragPushAt > 300) {
+      lastDragX = null;
+    }
 
     if (lastDragX === null) {
-      // First event of this drag session — initialize tracking, don't push yet
-      // (we need a delta, and the first event gives us no direction).
+      // First event of this drag session — initialize tracking, no push yet.
       lastDragX = currentX;
-    } else {
-      const deltaX = currentX - lastDragX;
-      lastDragX = currentX;
+      return;
+    }
 
-      const now = Date.now();
-      const directionChanged =
-        (deltaX > 0 && lastDragDirection !== "running-right") ||
-        (deltaX < 0 && lastDragDirection !== "running-left");
-      const throttleElapsed = now - lastDragPushAt >= 100;
+    const deltaX = currentX - lastDragX;
+    lastDragX = currentX;
 
-      // Only push if moving horizontally (|Δx| >= 5px threshold).
-      // Purely vertical drags keep whatever direction was last pushed.
-      if (Math.abs(deltaX) >= 5 && (directionChanged || throttleElapsed)) {
-        const direction: "running-right" | "running-left" =
-          deltaX > 0 ? "running-right" : "running-left";
-        lastDragDirection = direction;
-        lastDragPushAt = now;
-        queue.push(direction, { priority: -1, ttlMs: 1500, agent: "drag" });
-      }
+    // Threshold raised to 20px to filter macOS bounds-jitter on mousedown.
+    // A genuine drag covers 50-300px in well under 100ms; 20px filters noise
+    // while staying responsive to real movement.
+    if (Math.abs(deltaX) < 20) return;
+
+    const directionChanged =
+      (deltaX > 0 && lastDragDirection !== "running-right") ||
+      (deltaX < 0 && lastDragDirection !== "running-left");
+    const throttleElapsed = now - lastDragPushAt >= 100;
+
+    if (directionChanged || throttleElapsed) {
+      const direction: "running-right" | "running-left" =
+        deltaX > 0 ? "running-right" : "running-left";
+      lastDragDirection = direction;
+      lastDragPushAt = now;
+      queue.push(direction, { priority: -1, ttlMs: 1500, agent: "drag" });
     }
   });
 
