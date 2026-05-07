@@ -23,7 +23,6 @@ is_secret_bearing() {
 
   # Environment files (real secret values typically live here)
   [[ "$path" =~ (^|/)\.env($|\.|[^/]) ]] && return 0
-  [[ "$path" =~ \.env$ ]] && return 0
 
   # Private keys, certificates, key material
   [[ "$path" =~ \.(key|pem|p12|pfx|cer|crt|asc|gpg|jks|keystore)$ ]] && return 0
