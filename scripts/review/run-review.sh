@@ -30,12 +30,38 @@ if [[ ${#STAGED[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# Determine the strictest severity across changed files.
+# Hard split: secret-bearing files NEVER touch the cloud API. Other files go
+# through review normally. False positives just route to manual review (mild
+# friction); false negatives leak secrets (catastrophic, irreversible).
+REVIEWABLE=()
+EXCLUDED=()
+for f in "${STAGED[@]}"; do
+  if is_secret_bearing "$f"; then
+    EXCLUDED+=("$f")
+  else
+    REVIEWABLE+=("$f")
+  fi
+done
+
+if [[ ${#EXCLUDED[@]} -gt 0 ]]; then
+  echo "[review] excluded from cloud review (secret-bearing — review manually):"
+  for f in "${EXCLUDED[@]}"; do
+    echo "         - $f"
+  done
+fi
+
+if [[ ${#REVIEWABLE[@]} -eq 0 ]]; then
+  echo "[review] all staged files are secret-bearing — skipping cloud review."
+  echo "[review] please verify those changes manually before pushing."
+  exit 0
+fi
+
+# Determine the strictest severity across review-eligible files.
 # Order: any-concern > critical-only > informational.
 TIGHTEST_SEVERITY="informational"
 NEEDS_SECURITY_CHAIN=0
 
-for f in "${STAGED[@]}"; do
+for f in "${REVIEWABLE[@]}"; do
   classification=$(classify_file "$f")
   severity="${classification%%|*}"
   chain="${classification##*|}"
@@ -50,7 +76,7 @@ for f in "${STAGED[@]}"; do
   [[ "$chain" == "security+code-review" ]] && NEEDS_SECURITY_CHAIN=1
 done
 
-echo "[review] ${#STAGED[@]} staged file(s), severity=$TIGHTEST_SEVERITY"
+echo "[review] ${#REVIEWABLE[@]} reviewable file(s) (of ${#STAGED[@]} staged), severity=$TIGHTEST_SEVERITY"
 
 # Build the prompt: instructions + diffs + full file context.
 PROMPT_FILE=$(mktemp -t ds-review.XXXXXX)
@@ -90,14 +116,25 @@ trap 'rm -f "$PROMPT_FILE"' EXIT
   echo "3. Final line MUST be exactly one of:  VERDICT: PASS  or  VERDICT: BLOCK"
   echo ""
 
-  echo "## Staged files"
-  for f in "${STAGED[@]}"; do
+  echo "## Files under review"
+  for f in "${REVIEWABLE[@]}"; do
     echo "- $f  →  $(classify_file "$f")"
   done
+
+  if [[ ${#EXCLUDED[@]} -gt 0 ]]; then
+    echo ""
+    echo "## Files excluded from this review"
+    echo "The following files were intentionally NOT sent to the model because"
+    echo "they typically contain secret values (env vars, keys, credentials)."
+    echo "The user reviews these manually. Do not speculate about their contents."
+    for f in "${EXCLUDED[@]}"; do
+      echo "- $f"
+    done
+  fi
   echo ""
 
   echo "## Diffs"
-  for f in "${STAGED[@]}"; do
+  for f in "${REVIEWABLE[@]}"; do
     echo ""
     echo "### Diff: $f"
     echo '```diff'
@@ -107,7 +144,7 @@ trap 'rm -f "$PROMPT_FILE"' EXIT
 
   echo ""
   echo "## Full file context (post-staged-changes, files under 50KB only)"
-  for f in "${STAGED[@]}"; do
+  for f in "${REVIEWABLE[@]}"; do
     if [[ -f "$f" ]] && [[ $(wc -c < "$f" 2>/dev/null || echo 0) -lt 50000 ]]; then
       echo ""
       echo "### File: $f"

@@ -1,7 +1,11 @@
 # Path-based review policy for Desktop_Ash.
-# Sourced by run-review.sh — exposes classify_file().
+# Sourced by run-review.sh — exposes is_secret_bearing() and classify_file().
 #
-# Classification → "<severity>|<chain>"
+# is_secret_bearing(path) → return 0 if file likely contains real secret values
+#   (env vars, private keys, credentials, tokens). These files NEVER get sent
+#   to a cloud LLM API, even for review. They're listed for manual review.
+#
+# classify_file(path) → "<severity>|<chain>" for review-eligible files
 #   severity: any-concern | critical-only | informational
 #   chain:    security+code-review | code-review | code-review-light
 #
@@ -10,6 +14,42 @@
 #
 # Tweak this file to match how the project actually evolves.
 # Rule of thumb: if you're bypassing >10% of commits, loosen severity here.
+
+# Files that typically contain real secret values. NEVER send to cloud LLM API.
+# Be conservative — false positives just route to manual review (mild friction);
+# false negatives leak secrets to a third-party API (catastrophic, irreversible).
+is_secret_bearing() {
+  local path="$1"
+
+  # Environment files (real secret values typically live here)
+  [[ "$path" =~ (^|/)\.env($|\.|[^/]) ]] && return 0
+  [[ "$path" =~ \.env$ ]] && return 0
+
+  # Private keys, certificates, key material
+  [[ "$path" =~ \.(key|pem|p12|pfx|cer|crt|asc|gpg|jks|keystore)$ ]] && return 0
+
+  # SSH keys (no extension)
+  [[ "$path" =~ (^|/)id_(rsa|ed25519|dsa|ecdsa)$ ]] && return 0
+
+  # Cloud / CI credentials (matches at start, after path sep, or after - . _)
+  [[ "$path" =~ (^|/|-|\.|_)(credentials|service[-_]account)(\.json|\.yaml|\.yml)?$ ]] && return 0
+  [[ "$path" =~ (^|/)\.aws/credentials ]] && return 0
+  [[ "$path" =~ (^|/)\.kube/config ]] && return 0
+  [[ "$path" =~ (^|/)\.netrc$ ]] && return 0
+
+  # Package manager auth tokens
+  [[ "$path" =~ (^|/)\.npmrc$ ]] && return 0
+  [[ "$path" =~ (^|/)\.pypirc$ ]] && return 0
+
+  # Conventional secret folders
+  [[ "$path" =~ (^|/)\.?secrets?/ ]] && return 0
+  [[ "$path" =~ (^|/)private/ ]] && return 0
+
+  # Cookies, session dumps
+  [[ "$path" =~ (^|/)cookies?\.(txt|json)$ ]] && return 0
+
+  return 1
+}
 
 classify_file() {
   local path="$1"
