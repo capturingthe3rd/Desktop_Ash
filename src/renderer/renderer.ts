@@ -6,6 +6,10 @@ interface StateUpdatePayload {
   state: string;
   agent: string | null;
   message: string | null;
+  // Phase 12C — session metadata for deep-link routing on bubble click
+  sessionId: string | null;
+  sessionPath: string | null;
+  sessionType: string | null;
 }
 
 // window.ash is injected by preload.ts via contextBridge
@@ -16,7 +20,7 @@ declare global {
       onStateUpdate: (callback: (payload: StateUpdatePayload) => void) => void;
       listPets: () => Promise<unknown[]>;
       selectPet: (petId: string) => Promise<string>;
-      clickBubble: (agent: string | null) => void;
+      clickBubble: (agent: string | null, sessionType: string | null, sessionPath: string | null, sessionId: string | null) => void;
       // Phase 10A — relay activity events to main via IPC
       logActivity: (type: string, data: object) => void;
       // Phase 11A — dynamic bubble window layout
@@ -220,7 +224,7 @@ function applyTailStyle(tail: HTMLDivElement, colors: BubbleColors): void {
   }
 }
 
-async function spawnBubble(agent: string | null, message: string): Promise<void> {
+async function spawnBubble(agent: string | null, message: string, sessionType: string | null, sessionPath: string | null, sessionId: string | null): Promise<void> {
   // If this is the first bubble of an empty stack, request layout from main.
   // Main picks the optimal side, resizes the window, and returns the side string.
   if (activeBubbles.length === 0) {
@@ -278,17 +282,17 @@ async function spawnBubble(agent: string | null, message: string): Promise<void>
     dismissBubble(active);
   });
 
-  // Left-click → focus the agent's app, then dismiss
+  // Left-click → deep-link to agent session (Tier 2) or focus app (Tier 1), then dismiss
   el.addEventListener("click", (e) => {
     if (e.button !== 0) return;
-    console.log(`[bubble] left-click → focus app for agent="${agent ?? "anon"}"`);
-    window.ash.clickBubble(agent);
+    console.log(`[bubble] left-click → agent="${agent ?? "anon"}" sessionType=${sessionType ?? "none"}`);
+    window.ash.clickBubble(agent, sessionType, sessionPath, sessionId);
     dismissBubble(active);
   });
 
-  console.log(`[bubble] spawned agent="${agent ?? "anon"}" message="${message.slice(0, 40)}…"`);
+  console.log(`[bubble] spawned agent="${agent ?? "anon"}" sessionType=${sessionType ?? "none"} message="${message.slice(0, 40)}…"`);
   // Relay to main for activity log — renderer is sandboxed, so send via IPC bridge.
-  window.ash.logActivity("bubble_spawn", { agent, messageLength: message.length });
+  window.ash.logActivity("bubble_spawn", { agent, sessionType, sessionId, messageLength: message.length });
 }
 
 // ── Wire-up ─────────────────────────────────────────────────────────────────
@@ -359,7 +363,7 @@ async function init(): Promise<void> {
     setSpriteState(state);
     // Bubble: only spawn when message is provided (completion events)
     if (payload.message && payload.message.trim().length > 0) {
-      spawnBubble(payload.agent, payload.message).catch(console.error);
+      spawnBubble(payload.agent, payload.message, payload.sessionType, payload.sessionPath, payload.sessionId).catch(console.error);
     }
   });
 

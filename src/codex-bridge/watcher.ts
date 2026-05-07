@@ -126,6 +126,8 @@ export class CodexWatcher {
       this.state.fileWatcher = null;
     }
 
+    // activePath is the absolute path to the JSONL file.
+    // sessionId = JSONL stem (filename without extension) — unique per Codex session.
     this.state.activePath = filePath;
 
     if (seekToEnd) {
@@ -212,6 +214,12 @@ export class CodexWatcher {
 
       const push = mapEventToState(event);
       if (!push) continue;
+
+      // Attach session metadata for Phase 12C deep-link routing.
+      // sessionId = JSONL filename stem; sessionPath = absolute JSONL path.
+      const stem = path.basename(filePath, ".jsonl");
+      push.sessionId = stem;
+      push.sessionPath = filePath;
 
       // Debounce: hold the most recent push, fire after DEBOUNCE_MS quiet window
       this.state.pendingPush = push;

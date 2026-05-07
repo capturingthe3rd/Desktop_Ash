@@ -17,6 +17,11 @@ function postState(push: MappedPush): void {
     agent: AGENT_LABEL,
     priority: 0,
     ...(push.message ? { message: push.message } : {}),
+    // Phase 12C — always include sessionType so the server knows this is codex.
+    // sessionId and sessionPath are present when watcher.ts has an active file.
+    sessionType: "codex",
+    ...(push.sessionId ? { sessionId: push.sessionId } : {}),
+    ...(push.sessionPath ? { sessionPath: push.sessionPath } : {}),
   });
 
   const req = http.request(
