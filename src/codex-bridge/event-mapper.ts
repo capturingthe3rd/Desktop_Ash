@@ -71,9 +71,13 @@ export function mapEventToState(event: CodexEvent): MappedPush | null {
 
   if (type === "event_msg") {
     switch (payloadType) {
-      // task_started = user submitted a prompt, model is thinking → waiting
-      case "task_started":
-        return { state: "waiting", ttlMs: 3000 };
+      // task_started = user submitted a prompt, model is thinking.
+      // 50/50 split between thinking and reading-thinking so the pet
+      // doesn't always strike the same pose at the start of every turn.
+      case "task_started": {
+        const thinkingState = Math.random() < 0.5 ? "thinking" : "reading-thinking";
+        return { state: thinkingState, ttlMs: 3000 };
+      }
 
       // task_complete = turn fully done → celebrate + bubble with last_agent_message
       case "task_complete": {
