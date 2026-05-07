@@ -11,7 +11,7 @@ import * as codexBridge from "../codex-bridge/index.js";
 import { startWanderManager } from "./wander.js";
 import type { WanderHandle } from "./wander.js";
 import { IPC } from "../shared/types.js";
-import type { PetManifest, AppConfig } from "../shared/types.js";
+import type { PetManifest, AppConfig, BubbleSide } from "../shared/types.js";
 import { startTray } from "./tray.js";
 import { initActivityLog, logActivity, markCleanShutdown, getLogsDir, getLatestCrashReportPath, hasCrashLog } from "./activity-log.js";
 
@@ -54,13 +54,81 @@ let lastDragDirection: "running-right" | "running-left" = "running-right";
 // window-menu Close) would destroy Ash and leave the user stranded.
 let isQuitting = false;
 
-// Reserved pixel height above the sprite for speech bubbles. Constant — window
-// is sized once at startup to include this area; no dynamic resize needed.
-const BUBBLE_AREA_HEIGHT = 280;
-// Minimum window width so bubbles get a wide reading area, not a tall narrow column.
-// Window is max(192*scale, BUBBLE_MIN_WIDTH) wide. At 0.75x scale (sprite=144px)
-// the window ends up 360px wide, sprite centered horizontally with transparent margins.
-const BUBBLE_MIN_WIDTH = 360;
+// Fixed pixel dimensions for the bubble area alongside the sprite.
+// BUBBLE_AREA_TALL: height of bubble area when stacked above or below the sprite.
+// BUBBLE_AREA_WIDE: width of bubble area when placed left or right of the sprite.
+const BUBBLE_AREA_TALL = 280;
+const BUBBLE_AREA_WIDE = 240;
+
+// Phase 11A — current bubble side state. "none" = sprite-only window.
+// Persists across bubble stacks; reset to "none" when BUBBLE_LAYOUT_CLEAR fires.
+let currentBubbleSide: BubbleSide = "none";
+
+// Returns where the sprite's top-left corner sits inside the overlay window,
+// given the current bubble side layout. Origin = window top-left.
+function getSpriteOffsetInWindow(side: BubbleSide, scale: number): { x: number; y: number } {
+  const spriteW = Math.round(192 * scale);
+  const spriteH = Math.round(208 * scale);
+  switch (side) {
+    case "above":
+      // Bubble area on top; sprite below it. Sprite is centered horizontally.
+      return { x: Math.round((Math.max(spriteW, BUBBLE_AREA_WIDE) - spriteW) / 2), y: BUBBLE_AREA_TALL };
+    case "below":
+      // Sprite on top; bubble area below. Sprite centered horizontally.
+      return { x: Math.round((Math.max(spriteW, BUBBLE_AREA_WIDE) - spriteW) / 2), y: 0 };
+    case "left":
+      // Bubble area on left; sprite on right. Sprite centered vertically.
+      return { x: BUBBLE_AREA_WIDE, y: Math.round((Math.max(spriteH, BUBBLE_AREA_WIDE) - spriteH) / 2) };
+    case "right":
+      // Sprite on left; bubble area on right. Sprite centered vertically.
+      return { x: 0, y: Math.round((Math.max(spriteH, BUBBLE_AREA_WIDE) - spriteH) / 2) };
+    case "none":
+    default:
+      return { x: 0, y: 0 };
+  }
+}
+
+// Returns the total window dimensions needed for a given side layout.
+function computeWindowDimsForSide(side: BubbleSide, scale: number): { width: number; height: number } {
+  const spriteW = Math.round(192 * scale);
+  const spriteH = Math.round(208 * scale);
+  switch (side) {
+    case "above":
+    case "below":
+      return { width: Math.max(spriteW, BUBBLE_AREA_WIDE), height: BUBBLE_AREA_TALL + spriteH };
+    case "left":
+    case "right":
+      return { width: BUBBLE_AREA_WIDE + spriteW, height: Math.max(spriteH, BUBBLE_AREA_WIDE) };
+    case "none":
+    default:
+      return { width: spriteW, height: spriteH };
+  }
+}
+
+// Resizes the overlay window for a new side layout while keeping sprite center stable.
+// "Sprite center" = center of the sprite element in screen coordinates.
+// We compute it from the current window position + current side offset, then reposition
+// so sprite center lands at the same screen coordinate after the resize.
+function resizeOverlayForSide(win: BrowserWindow, side: BubbleSide, scale: number): void {
+  const cur = win.getBounds();
+  const oldOffset = getSpriteOffsetInWindow(currentBubbleSide, scale);
+  const spriteW = Math.round(192 * scale);
+  const spriteH = Math.round(208 * scale);
+  // Sprite center in screen coords (using OLD layout offset)
+  const spriteCenterX = cur.x + oldOffset.x + spriteW / 2;
+  const spriteCenterY = cur.y + oldOffset.y + spriteH / 2;
+
+  const { width, height } = computeWindowDimsForSide(side, scale);
+  const newOffset = getSpriteOffsetInWindow(side, scale);
+  // Reposition window so sprite center stays at same screen coord
+  const newX = Math.round(spriteCenterX - newOffset.x - spriteW / 2);
+  const newY = Math.round(spriteCenterY - newOffset.y - spriteH / 2);
+
+  currentBubbleSide = side;
+  console.log(`[main] resizeOverlayForSide side=${side} → ${width}×${height} at (${newX},${newY})`);
+  win.setBounds({ x: newX, y: newY, width, height });
+}
+
 
 // State queue is instantiated here so server and IPC can share it.
 // Initial subscriber forwards all three args to the renderer.
@@ -189,36 +257,62 @@ function saveBoundsForDisplay(displayId: string, bounds: { x: number; y: number 
   saveConfig({ ...cfg, displayPositions: next });
 }
 
-// Resize the overlay window in place, keeping the SPRITE center stable (not window center).
-// Window height = BUBBLE_AREA_HEIGHT + 208*scale. Sprite center is at
-// window.y + BUBBLE_AREA_HEIGHT + (208*scale)/2. We preserve that y coordinate.
+// Resize the overlay window in place when the user changes scale (Cmd+= / Cmd+-).
+// Keeps the SPRITE center stable in screen coords across the resize.
+// Works with any currentBubbleSide layout by reading current window dims to infer
+// the old sprite center, then repositioning so sprite center is unchanged.
 function resizeOverlay(win: BrowserWindow, scale: number): void {
-  const spriteH = Math.round(208 * scale);
-  const w = Math.max(Math.round(192 * scale), BUBBLE_MIN_WIDTH);
-  const h = BUBBLE_AREA_HEIGHT + spriteH;
   const cur = win.getBounds();
-  // Sprite center Y in screen coords (stays fixed across resize)
-  const prevSpriteH = cur.height - BUBBLE_AREA_HEIGHT;
-  const spriteCenterY = cur.y + BUBBLE_AREA_HEIGHT + prevSpriteH / 2;
-  // Compute new window top-left so sprite center stays at spriteCenterY
-  const newY = Math.round(spriteCenterY - BUBBLE_AREA_HEIGHT - spriteH / 2);
-  const cx = cur.x + cur.width / 2;
-  win.setBounds({
-    x: Math.round(cx - w / 2),
-    y: newY,
-    width: w,
-    height: h,
-  });
+  const side = currentBubbleSide;
+
+  // Derive old sprite center from current window bounds + side layout geometry.
+  // We don't need the old scale — just read the areas from the fixed constants.
+  let oldSpriteCenterX: number;
+  let oldSpriteCenterY: number;
+  switch (side) {
+    case "none":
+      oldSpriteCenterX = cur.x + cur.width / 2;
+      oldSpriteCenterY = cur.y + cur.height / 2;
+      break;
+    case "above":
+      oldSpriteCenterX = cur.x + cur.width / 2;
+      oldSpriteCenterY = cur.y + BUBBLE_AREA_TALL + (cur.height - BUBBLE_AREA_TALL) / 2;
+      break;
+    case "below":
+      oldSpriteCenterX = cur.x + cur.width / 2;
+      oldSpriteCenterY = cur.y + (cur.height - BUBBLE_AREA_TALL) / 2;
+      break;
+    case "left":
+      oldSpriteCenterX = cur.x + BUBBLE_AREA_WIDE + (cur.width - BUBBLE_AREA_WIDE) / 2;
+      oldSpriteCenterY = cur.y + cur.height / 2;
+      break;
+    case "right":
+    default:
+      oldSpriteCenterX = cur.x + (cur.width - BUBBLE_AREA_WIDE) / 2;
+      oldSpriteCenterY = cur.y + cur.height / 2;
+      break;
+  }
+
+  const spriteW = Math.round(192 * scale);
+  const spriteH = Math.round(208 * scale);
+  const { width, height } = computeWindowDimsForSide(side, scale);
+  const newOffset = getSpriteOffsetInWindow(side, scale);
+
+  // Reposition so sprite center stays at same screen coord
+  const newX = Math.round(oldSpriteCenterX - newOffset.x - spriteW / 2);
+  const newY = Math.round(oldSpriteCenterY - newOffset.y - spriteH / 2);
+  win.setBounds({ x: newX, y: newY, width, height });
 }
 
 function createOverlayWindow(): BrowserWindow {
-  // Width = max(192*scale, 240) to fit bubble min-width. Height = BUBBLE_AREA_HEIGHT + 208*scale.
+  // Start sprite-only (no bubble area). Window expands dynamically when bubbles spawn.
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
   const scale = scaleForDisplay(String(display.id));
+  const { width: initW, height: initH } = computeWindowDimsForSide("none", scale);
   const win = new BrowserWindow({
-    width: Math.max(Math.round(192 * scale), BUBBLE_MIN_WIDTH),
-    height: BUBBLE_AREA_HEIGHT + Math.round(208 * scale),
+    width: initW,
+    height: initH,
     transparent: true,
     frame: false,
     hasShadow: false,
@@ -481,6 +575,60 @@ app.whenReady().then(() => {
 
   // Register IPC handlers
   registerIpcHandlers();
+
+  // BUBBLE_LAYOUT_REQUEST: renderer invokes when first bubble of an empty stack spawns.
+  // Main computes the optimal side based on screen clearance, resizes the window to
+  // accommodate the bubble area, and returns the chosen side string to the renderer.
+  ipcMain.handle(IPC.BUBBLE_LAYOUT_REQUEST, (_event, _payload: { count: number }) => {
+    if (!overlayWin || overlayWin.isDestroyed()) return "above";
+
+    const win = overlayWin;
+    const bounds = win.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const wa = display.workArea;
+    const id = String(display.id);
+    const scale = scaleForDisplay(id);
+
+    // Sprite center in screen coords (using current "none" layout — window IS the sprite)
+    const spriteCenterX = bounds.x + bounds.width / 2;
+    const spriteCenterY = bounds.y + bounds.height / 2;
+
+    const spriteHalfH = Math.round(208 * scale) / 2;
+    const spriteHalfW = Math.round(192 * scale) / 2;
+
+    // Clearance from sprite center to each work-area edge
+    const roomAbove  = spriteCenterY - spriteHalfH - wa.y;
+    const roomBelow  = (wa.y + wa.height) - (spriteCenterY + spriteHalfH);
+    const roomLeft   = spriteCenterX - spriteHalfW - wa.x;
+    const roomRight  = (wa.x + wa.width) - (spriteCenterX + spriteHalfW);
+
+    // Pick side: above by default (280+20px margin), then right, left, below as fallbacks
+    let side: BubbleSide;
+    if (roomAbove >= 300) {
+      side = "above";
+    } else if (roomRight >= 280) {
+      side = "right";
+    } else if (roomLeft >= 280) {
+      side = "left";
+    } else {
+      side = "below";
+    }
+
+    console.log(`[main] BUBBLE_LAYOUT_REQUEST clearances above=${Math.round(roomAbove)} below=${Math.round(roomBelow)} left=${Math.round(roomLeft)} right=${Math.round(roomRight)} → side=${side}`);
+    resizeOverlayForSide(win, side, scale);
+    return side;
+  });
+
+  // BUBBLE_LAYOUT_CLEAR: renderer fires after the last bubble fades.
+  // Shrink the window back to sprite-only and reset side state.
+  ipcMain.on(IPC.BUBBLE_LAYOUT_CLEAR, () => {
+    if (!overlayWin || overlayWin.isDestroyed()) return;
+    const win = overlayWin;
+    const id = String(screen.getDisplayMatching(win.getBounds()).id);
+    const scale = scaleForDisplay(id);
+    console.log("[main] BUBBLE_LAYOUT_CLEAR → shrinking to sprite-only");
+    resizeOverlayForSide(win, "none", scale);
+  });
 
   // BUBBLE_CLICK: renderer left-clicked a bubble → bring agent app to front.
   // Fire-and-forget AppleScript. Never throws to the renderer — non-blocking by design.

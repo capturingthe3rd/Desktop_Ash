@@ -134,8 +134,10 @@ export const IPC = {
   // Phase 10A — activity log IPC (renderer → main, fire-and-forget send)
   ACTIVITY_LOG: "activity:log",            // renderer → main (send): {type: string, data: object}
   // Phase 11A — dynamic bubble window layout
-  BUBBLE_LAYOUT: "bubble:layout",          // renderer → main (send): {side: BubbleSide, count: number}
-  BUBBLE_SIDE_INFO: "bubble:side-info",    // renderer → main (invoke): BubbleSideInfo
+  BUBBLE_LAYOUT: "bubble:layout",              // renderer → main (send): {side: BubbleSide, count: number}
+  BUBBLE_SIDE_INFO: "bubble:side-info",        // renderer → main (invoke): BubbleSideInfo
+  BUBBLE_LAYOUT_REQUEST: "bubble:layout-request", // renderer → main (invoke): {count: number} → BubbleSide
+  BUBBLE_LAYOUT_CLEAR: "bubble:layout-clear",     // renderer → main (send): no payload
   // Phase 11B — activity dashboard reads + clear
   ACTIVITY_LOG_READ: "activity:read",      // renderer → main (invoke): ActivityLogEntry[]
   ACTIVITY_LOG_CLEAR: "activity:clear",    // renderer → main (invoke): { ok: true }

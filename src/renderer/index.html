@@ -16,62 +16,130 @@
         height: 100%;
         background: transparent;
         overflow: hidden;
+        position: relative;
       }
 
       body {
-        display: flex;
-        flex-direction: column;
-        /* IMPORTANT: do NOT make the body itself a drag region. The bubble-stack
-           area (top 280px) is transparent when empty; a body-level drag region
-           would let macOS treat right-clicks on that empty area as title-bar
-           gestures, which crashes the transparent always-on-top window with
-           SIGSEGV in Electron 42. Drag is scoped to the visible sprite area. */
+        /* IMPORTANT: do NOT make the body itself a drag region. Transparent bubble
+           area passes clicks through to the desktop. Drag is scoped to #pet only. */
       }
 
-      /* Top reserved 280px holds stacked bubbles. Transparent + click-pass-through
-         when empty so users can click through to the desktop. */
+      /* Sprite element — always present, sized by CSS var injected from renderer */
+      #pet {
+        position: absolute;
+        background-repeat: no-repeat;
+        background-size: 800% 900%;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        -webkit-app-region: drag;
+      }
+
+      /* Bubble container — absolute, hidden when no-bubble, shown when side is set */
       #bubble-stack {
-        height: 280px;
-        flex: 0 0 280px;
+        position: absolute;
         display: flex;
+        overflow: hidden;
+        pointer-events: none; /* container = pass-through; individual bubbles re-enable */
+      }
+
+      /* ── Layout: no-bubble (sprite-only, window = sprite dims) ── */
+      body.no-bubble #pet {
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      body.no-bubble #bubble-stack {
+        display: none;
+      }
+
+      /* ── Layout: side-above (bubble above, sprite below) ── */
+      body.side-above #bubble-stack {
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 280px;
         flex-direction: column;
         align-items: center;
         justify-content: flex-end;
         padding: 8px 4px;
         gap: 6px;
-        overflow: hidden;
-        pointer-events: none; /* container = pass-through; individual bubbles re-enable */
-      }
-
-      /* Bottom area = sprite. Takes remaining height. */
-      #pet-area {
-        flex: 1;
         display: flex;
+      }
+
+      body.side-above #pet {
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        /* width/height set via inline style from renderer */
+      }
+
+      /* ── Layout: side-below (sprite above, bubble below) ── */
+      body.side-below #bubble-stack {
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 280px;
+        flex-direction: column;
         align-items: center;
-        justify-content: center;
-        -webkit-app-region: drag;
+        justify-content: flex-start;
+        padding: 8px 4px;
+        gap: 6px;
+        display: flex;
       }
 
-      #pet {
-        /* Height-locked + aspect-ratio gives the correct sprite shape (192:208).
-           Width is derived; pet-area centers it horizontally. Without this, the
-           sprite would overflow downward when window width > sprite width
-           (which happens when the window is widened to fit bubble min-width). */
+      body.side-below #pet {
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      /* ── Layout: side-left (bubble left, sprite right) ── */
+      body.side-left #bubble-stack {
+        top: 0;
+        left: 0;
+        width: 240px;
         height: 100%;
-        aspect-ratio: 192 / 208;
-        background-repeat: no-repeat;
-        background-size: 800% 900%;
-        image-rendering: pixelated;
-        image-rendering: crisp-edges;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 4px 8px;
+        gap: 6px;
+        display: flex;
       }
 
+      body.side-left #pet {
+        top: 50%;
+        right: 0;
+        transform: translateY(-50%);
+      }
+
+      /* ── Layout: side-right (sprite left, bubble right) ── */
+      body.side-right #bubble-stack {
+        top: 0;
+        right: 0;
+        width: 240px;
+        height: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 4px 8px;
+        gap: 6px;
+        display: flex;
+      }
+
+      body.side-right #pet {
+        top: 50%;
+        left: 0;
+        transform: translateY(-50%);
+      }
+
+      /* ── Bubble styles ── */
       .bubble {
         position: relative;
-        /* Wider bubble = fewer lines for the same message; reads more like a quick
-           thought than a stacked column. min-width keeps short messages from looking
-           like tags; max-width caps overly-long single-line bubbles. */
         min-width: 180px;
-        max-width: 340px;
+        max-width: 220px;
         padding: 10px 14px;
         border-radius: 12px;
         border: 2px solid;
@@ -109,16 +177,53 @@
         word-wrap: break-word;
       }
 
+      /* ── Tail direction per layout side ── */
+
       .bubble .tail {
         position: absolute;
+        width: 0;
+        height: 0;
+      }
+
+      /* above (default): tail at bottom-center, points down toward sprite */
+      body.side-above .bubble .tail,
+      body.no-bubble .bubble .tail {
         bottom: -8px;
         left: 50%;
         transform: translateX(-50%);
-        width: 0;
-        height: 0;
         border-left: 8px solid transparent;
         border-right: 8px solid transparent;
         /* border-top color set inline to match bubble bg */
+      }
+
+      /* below: tail at top-center, points up toward sprite */
+      body.side-below .bubble .tail {
+        top: -8px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        /* border-bottom color set inline to match bubble bg */
+      }
+
+      /* left: tail at right-center, points right toward sprite */
+      body.side-left .bubble .tail {
+        top: 50%;
+        right: -8px;
+        transform: translateY(-50%);
+        border-top: 8px solid transparent;
+        border-bottom: 8px solid transparent;
+        /* border-left color set inline to match bubble bg */
+      }
+
+      /* right: tail at left-center, points left toward sprite */
+      body.side-right .bubble .tail {
+        top: 50%;
+        left: -8px;
+        transform: translateY(-50%);
+        border-top: 8px solid transparent;
+        border-bottom: 8px solid transparent;
+        /* border-right color set inline to match bubble bg */
       }
 
       @keyframes bubbleEnter {
@@ -131,11 +236,9 @@
       }
     </style>
   </head>
-  <body>
+  <body class="no-bubble">
     <div id="bubble-stack"></div>
-    <div id="pet-area">
-      <div id="pet"></div>
-    </div>
+    <div id="pet"></div>
     <script type="module" src="./renderer.ts"></script>
   </body>
 </html>

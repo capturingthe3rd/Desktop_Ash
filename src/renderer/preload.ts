@@ -20,6 +20,8 @@ const IPC = {
   // Phase 11A — dynamic bubble window layout
   BUBBLE_LAYOUT: "bubble:layout",
   BUBBLE_SIDE_INFO: "bubble:side-info",
+  BUBBLE_LAYOUT_REQUEST: "bubble:layout-request",
+  BUBBLE_LAYOUT_CLEAR: "bubble:layout-clear",
   // Phase 11B — activity dashboard reads + clear
   ACTIVITY_LOG_READ: "activity:read",
   ACTIVITY_LOG_CLEAR: "activity:clear",
@@ -56,6 +58,13 @@ contextBridge.exposeInMainWorld("ash", {
   // Phase 11A — notify main of bubble layout change so it can resize the window.
   sendBubbleLayout: (side: string, count: number) => {
     ipcRenderer.send(IPC.BUBBLE_LAYOUT, { side, count });
+  },
+  // Phase 11A v2 — request main to pick side, resize window, return chosen side.
+  requestBubbleLayout: (count: number): Promise<string> =>
+    ipcRenderer.invoke(IPC.BUBBLE_LAYOUT_REQUEST, { count }),
+  // Phase 11A v2 — notify main that all bubbles faded; shrink to sprite-only.
+  clearBubbleLayout: () => {
+    ipcRenderer.send(IPC.BUBBLE_LAYOUT_CLEAR);
   },
   // Phase 9 settings window APIs
   getSettings: (): Promise<unknown> => ipcRenderer.invoke(IPC.SETTINGS_GET),

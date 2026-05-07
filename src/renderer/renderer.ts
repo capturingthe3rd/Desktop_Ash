@@ -19,7 +19,32 @@ declare global {
       clickBubble: (agent: string | null) => void;
       // Phase 10A — relay activity events to main via IPC
       logActivity: (type: string, data: object) => void;
+      // Phase 11A — dynamic bubble window layout
+      requestBubbleLayout: (count: number) => Promise<string>;
+      clearBubbleLayout: () => void;
     };
+  }
+}
+
+// ── Layout helpers ───────────────────────────────────────────────────────────
+
+// The current bubble side applied to <body>. "no-bubble" = sprite-only window.
+type LayoutSide = "no-bubble" | "side-above" | "side-below" | "side-left" | "side-right";
+const LAYOUT_CLASSES: LayoutSide[] = ["no-bubble", "side-above", "side-below", "side-left", "side-right"];
+
+function applyLayoutClass(cls: LayoutSide): void {
+  document.body.classList.remove(...LAYOUT_CLASSES);
+  document.body.classList.add(cls);
+}
+
+// Maps the side string returned by main → body class
+function sideToLayoutClass(side: string): LayoutSide {
+  switch (side) {
+    case "above": return "side-above";
+    case "below": return "side-below";
+    case "left":  return "side-left";
+    case "right": return "side-right";
+    default:      return "no-bubble";
   }
 }
 
@@ -161,11 +186,50 @@ function dismissBubble(b: ActiveBubble): void {
   b.el.classList.add("fading");
   setTimeout(() => {
     b.el.remove();
+    // After the last bubble fades, notify main to shrink window back to sprite-only.
+    if (activeBubbles.length === 0) {
+      console.log("[bubble] last bubble gone → BUBBLE_LAYOUT_CLEAR");
+      window.ash.clearBubbleLayout();
+      applyLayoutClass("no-bubble");
+    }
   }, 400);
 }
 
-function spawnBubble(agent: string | null, message: string): void {
-  // Cap stack — force-fade oldest if at limit. Oldest = last in DOM (we prepend new).
+// Apply the correct tail border style for the current layout side.
+// CSS handles position/transform; we set the colored border direction here.
+function applyTailStyle(tail: HTMLDivElement, colors: BubbleColors): void {
+  // Clear all directional borders first
+  tail.style.borderTop = "";
+  tail.style.borderBottom = "";
+  tail.style.borderLeft = "";
+  tail.style.borderRight = "";
+
+  const cls = document.body.className;
+  if (cls.includes("side-below")) {
+    // Tail points up toward sprite — use border-bottom
+    tail.style.borderBottom = `8px solid ${colors.tail}`;
+  } else if (cls.includes("side-left")) {
+    // Tail points right toward sprite — use border-left
+    tail.style.borderLeft = `8px solid ${colors.tail}`;
+  } else if (cls.includes("side-right")) {
+    // Tail points left toward sprite — use border-right
+    tail.style.borderRight = `8px solid ${colors.tail}`;
+  } else {
+    // side-above (default) or no-bubble: tail points down — use border-top
+    tail.style.borderTop = `8px solid ${colors.tail}`;
+  }
+}
+
+async function spawnBubble(agent: string | null, message: string): Promise<void> {
+  // If this is the first bubble of an empty stack, request layout from main.
+  // Main picks the optimal side, resizes the window, and returns the side string.
+  if (activeBubbles.length === 0) {
+    const side = await window.ash.requestBubbleLayout(1);
+    console.log(`[bubble] layout side=${side}`);
+    applyLayoutClass(sideToLayoutClass(side));
+  }
+
+  // Cap stack — force-fade oldest if at limit. Oldest = last in activeBubbles array.
   while (activeBubbles.length >= BUBBLE_MAX_STACK) {
     const oldest = activeBubbles[activeBubbles.length - 1];
     if (oldest) dismissBubble(oldest);
@@ -188,14 +252,13 @@ function spawnBubble(agent: string | null, message: string): void {
 
   const tail = document.createElement("div");
   tail.className = "tail";
-  tail.style.borderTop = `8px solid ${colors.tail}`;
+  applyTailStyle(tail, colors);
 
   el.appendChild(label);
   el.appendChild(msg);
   el.appendChild(tail);
 
-  // Newest first (prepend) so it appears at the top of the stack;
-  // older bubbles slide down visually as new ones push in above.
+  // Newest first (prepend) so it appears at the top/leading edge of the stack.
   bubbleStack.insertBefore(el, bubbleStack.firstChild);
 
   const active: ActiveBubble = {
@@ -261,12 +324,31 @@ async function init(): Promise<void> {
   }
   petDiv.style.backgroundImage = `url("ash-asset://${spritesheetPath}")`;
 
+  // In the dynamic layout, #pet is absolutely positioned and needs explicit dims.
+  // The window starts sprite-only (width=spriteW, height=spriteH), so we can read
+  // innerWidth/innerHeight directly on init when body.no-bubble is active.
+  // On window resize (scale change or layout change), main resizes the BrowserWindow
+  // so the CSS layout reflows automatically — no JS resize listener needed.
+  function applySpriteSize(): void {
+    // In no-bubble mode the window IS the sprite, so use full window dims.
+    // In side modes the sprite dims are fixed and the window grows around them;
+    // CSS positions the sprite correctly — we just need the base dimensions set once.
+    petDiv.style.width = `${window.innerWidth}px`;
+    petDiv.style.height = `${window.innerHeight}px`;
+  }
+
+  // We only need dims when in no-bubble mode (sprite fills window).
+  // In side modes the sprite dims are applied via aspect-ratio + known scale.
+  // For simplicity: read from CSS custom props if available, else use window size.
+  // The renderer doesn't know the scale — use the actual window size at init.
+  applySpriteSize();
+
   window.ash.onStateUpdate((payload: StateUpdatePayload) => {
     const state = payload.state as PetState;
     setSpriteState(state);
     // Bubble: only spawn when message is provided (completion events)
     if (payload.message && payload.message.trim().length > 0) {
-      spawnBubble(payload.agent, payload.message);
+      spawnBubble(payload.agent, payload.message).catch(console.error);
     }
   });
 

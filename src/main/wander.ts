@@ -4,9 +4,10 @@ import { logActivity } from "./activity-log.js";
 import type { StateQueue } from "./state-queue.js";
 import type { PetState } from "../shared/types.js";
 
-// Must match BUBBLE_AREA_HEIGHT in main.ts. Inlined here to avoid circular imports
-// (wander → main would be circular; main → wander is the existing direction).
-const BUBBLE_AREA_HEIGHT = 280;
+// Fixed side-area dimensions — must match main.ts constants.
+// Inlined here to avoid circular imports (wander → main would be circular).
+const BUBBLE_AREA_TALL = 280;  // height of bubble area for above/below layouts
+const BUBBLE_AREA_WIDE = 240;  // width of bubble area for left/right layouts
 
 // Internal wander state machine states — distinct from PetState (those are renderer vocab).
 type WanderPhase = "dormant" | "armed" | "walking" | "resting";
@@ -104,10 +105,46 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     logActivity("wander_phase", { from, to: "dormant", reason });
   }
 
+  // Derive sprite offset-within-window from current window dims.
+  // We infer the layout from the window aspect/size rather than tracking side state
+  // here (avoids circular import). The sprite offset is the distance from window
+  // top-left to sprite top-left; sprite center = offset + (spriteW/2, spriteH/2).
+  function getSpriteOffsetFromBounds(bounds: Electron.Rectangle): { offsetX: number; offsetY: number; spriteW: number; spriteH: number } {
+    // For "none" (sprite-only): window dims equal sprite dims exactly.
+    // For "above": window is taller by BUBBLE_AREA_TALL, sprite is at bottom.
+    // For "below": window is taller by BUBBLE_AREA_TALL, sprite is at top.
+    // For "left": window is wider by BUBBLE_AREA_WIDE, sprite is on right.
+    // For "right": window is wider by BUBBLE_AREA_WIDE, sprite is on left.
+    // We detect the layout from the surplus dimensions.
+    const surplusH = bounds.height > bounds.width * 1.2 ? bounds.height - bounds.width : 0; // rough heuristic
+    const isTall = bounds.height >= bounds.width + BUBBLE_AREA_TALL - 10;
+    const isWide = bounds.width >= bounds.height + BUBBLE_AREA_WIDE - 10;
+
+    if (isTall) {
+      // above or below: sprite dims = (bounds.width, bounds.height - BUBBLE_AREA_TALL)
+      const spriteH = bounds.height - BUBBLE_AREA_TALL;
+      const spriteW = bounds.width;
+      // "above": sprite at bottom → offsetY = BUBBLE_AREA_TALL
+      // "below": sprite at top → offsetY = 0
+      // We can't distinguish without side state, but wander only runs with side="none"
+      // (wander cancels on bubble layout change via the existing notifyStateChange path).
+      // Default to "above" offset as the historical behavior. Wander is suspended
+      // during bubble display anyway so this path is only exercised at side="none".
+      void surplusH;
+      return { offsetX: 0, offsetY: BUBBLE_AREA_TALL, spriteW, spriteH };
+    } else if (isWide) {
+      // left or right: sprite dims = (bounds.width - BUBBLE_AREA_WIDE, bounds.height)
+      const spriteW = bounds.width - BUBBLE_AREA_WIDE;
+      const spriteH = bounds.height;
+      return { offsetX: BUBBLE_AREA_WIDE, offsetY: 0, spriteW, spriteH };
+    } else {
+      // none: sprite = full window
+      return { offsetX: 0, offsetY: 0, spriteW: bounds.width, spriteH: bounds.height };
+    }
+  }
+
   // Pick a random position within the current display's work area for the SPRITE center
-  // (not window center). The window is taller than the sprite by BUBBLE_AREA_HEIGHT, so
-  // we keep the sprite center on screen rather than the window center, which would let
-  // the sprite drift off the bottom edge on short displays.
+  // (not window center). Keeps the sprite center on screen regardless of layout.
   // Returns sprite-center coordinates (what startWalking navigates toward).
   function pickTarget(): { x: number; y: number } | null {
     if (win.isDestroyed()) return null;
@@ -115,26 +152,22 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
     const display = screen.getDisplayMatching(bounds);
     const wa = display.workArea;
 
-    const halfW = bounds.width / 2;
-    // Sprite occupies the bottom portion of the window; its center is offset from window top.
-    const spriteH = bounds.height - BUBBLE_AREA_HEIGHT;
+    const { offsetX, offsetY, spriteW, spriteH } = getSpriteOffsetFromBounds(bounds);
+    const halfSpriteW = spriteW / 2;
     const halfSpriteH = spriteH / 2;
 
-    // Usable area for the sprite center (not window center)
-    // Window top-left = spriteCenterX - halfW, spriteCenterY - BUBBLE_AREA_HEIGHT - halfSpriteH
-    // We need that window top-left to stay within work area, so:
-    const minX = wa.x + halfW;
-    const maxX = wa.x + wa.width - halfW;
-    // Window top must be >= wa.y → spriteCenterY - BUBBLE_AREA_HEIGHT - halfSpriteH >= wa.y
-    const minY = wa.y + BUBBLE_AREA_HEIGHT + halfSpriteH;
-    // Window bottom must be <= wa.y + wa.height → spriteCenterY + halfSpriteH <= wa.y + wa.height
-    const maxY = wa.y + wa.height - halfSpriteH;
+    // Usable area for sprite center, keeping full window inside work area.
+    // Window top-left = spriteCenterX - offsetX - halfSpriteW, spriteCenterY - offsetY - halfSpriteH
+    const minX = wa.x + offsetX + halfSpriteW;
+    const maxX = wa.x + wa.width - (bounds.width - offsetX - spriteW) - halfSpriteW;
+    const minY = wa.y + offsetY + halfSpriteH;
+    const maxY = wa.y + wa.height - (bounds.height - offsetY - spriteH) - halfSpriteH;
 
     if (maxX <= minX || maxY <= minY) return null;
 
     // Sprite center of current window position
-    const cx = bounds.x + halfW;
-    const cy = bounds.y + BUBBLE_AREA_HEIGHT + halfSpriteH;
+    const cx = bounds.x + offsetX + halfSpriteW;
+    const cy = bounds.y + offsetY + halfSpriteH;
 
     // Keep trying until we get a target at least 100px away (avoid trivial twitches).
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -164,16 +197,17 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
   function homeTargetForCurrentDisplay(): { x: number; y: number } | null {
     if (win.isDestroyed()) return null;
     const cfg = loadConfig();
-    const display = screen.getDisplayMatching(win.getBounds());
+    const bounds = win.getBounds();
+    const display = screen.getDisplayMatching(bounds);
     const saved = cfg.displayPositions?.[String(display.id)];
     if (!saved) return null;
     // displayPositions stores {x, y} as window top-left (per main.ts saveBoundsForDisplay).
-    // Sprite center = window top-left + (halfW, BUBBLE_AREA_HEIGHT + halfSpriteH).
-    const bounds = win.getBounds();
-    const spriteH = bounds.height - BUBBLE_AREA_HEIGHT;
+    // Sprite center = window top-left + sprite offset + sprite half-dims.
+    // Use current window bounds to infer layout (same as pickTarget).
+    const { offsetX, offsetY, spriteW, spriteH } = getSpriteOffsetFromBounds(bounds);
     return {
-      x: saved.x + bounds.width / 2,
-      y: saved.y + BUBBLE_AREA_HEIGHT + spriteH / 2,
+      x: saved.x + offsetX + spriteW / 2,
+      y: saved.y + offsetY + spriteH / 2,
     };
   }
 
@@ -218,9 +252,11 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
 
     const bounds = win.getBounds();
     // Target coords are sprite-center (from pickTarget / homeTargetForCurrentDisplay).
-    const dx = target.x - (bounds.x + bounds.width / 2);
-    const spriteHForDir = bounds.height - BUBBLE_AREA_HEIGHT;
-    const dy = target.y - (bounds.y + BUBBLE_AREA_HEIGHT + spriteHForDir / 2);
+    const { offsetX: offsetXDir, offsetY: offsetYDir, spriteW: spriteWDir, spriteH: spriteHForDir } = getSpriteOffsetFromBounds(bounds);
+    const curSpriteCxDir = bounds.x + offsetXDir + spriteWDir / 2;
+    const curSpriteCyDir = bounds.y + offsetYDir + spriteHForDir / 2;
+    const dx = target.x - curSpriteCxDir;
+    const dy = target.y - curSpriteCyDir;
     // Smarter direction: when the move is mostly vertical (|dx| small relative to
     // |dy|), keep the previous facing rather than flipping on a tiny dx. This
     // stops Ash from doing a confusing left-right flip when targets are stacked
@@ -253,12 +289,10 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
       }
 
       const cur = win.getBounds();
-      const spriteH = cur.height - BUBBLE_AREA_HEIGHT;
-      // Navigate by sprite center, not window center.
-      // Sprite center X = window center X (no horizontal bubble offset).
-      // Sprite center Y = window.y + BUBBLE_AREA_HEIGHT + spriteH/2.
-      const curSpriteCx = cur.x + cur.width / 2;
-      const curSpriteCy = cur.y + BUBBLE_AREA_HEIGHT + spriteH / 2;
+      // Navigate by sprite center. Derive offset from current window dims.
+      const { offsetX, offsetY, spriteW, spriteH } = getSpriteOffsetFromBounds(cur);
+      const curSpriteCx = cur.x + offsetX + spriteW / 2;
+      const curSpriteCy = cur.y + offsetY + spriteH / 2;
 
       const tgt = target!;
       const distX = tgt.x - curSpriteCx;
@@ -267,11 +301,11 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
 
       if (dist <= stepPx) {
         // Arrived — snap to target (tgt is sprite center).
-        // Window top-left: x = tgt.x - halfW, y = tgt.y - BUBBLE_AREA_HEIGHT - spriteH/2.
+        // Window top-left: x = tgt.x - offsetX - spriteW/2, y = tgt.y - offsetY - spriteH/2.
         clearWalkTick();
         win.setBounds({
-          x: Math.round(tgt.x - cur.width / 2),
-          y: Math.round(tgt.y - BUBBLE_AREA_HEIGHT - spriteH / 2),
+          x: Math.round(tgt.x - offsetX - spriteW / 2),
+          y: Math.round(tgt.y - offsetY - spriteH / 2),
           width: cur.width,
           height: cur.height,
         });
@@ -289,8 +323,8 @@ export function startWanderManager(win: BrowserWindow, queue: StateQueue): Wande
       const newSpriteCx = curSpriteCx + distX * ratio;
       const newSpriteCy = curSpriteCy + distY * ratio;
       win.setBounds({
-        x: Math.round(newSpriteCx - cur.width / 2),
-        y: Math.round(newSpriteCy - BUBBLE_AREA_HEIGHT - spriteH / 2),
+        x: Math.round(newSpriteCx - offsetX - spriteW / 2),
+        y: Math.round(newSpriteCy - offsetY - spriteH / 2),
         width: cur.width,
         height: cur.height,
       });
