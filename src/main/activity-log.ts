@@ -4,6 +4,19 @@ import path from "path";
 import os from "os";
 import { loadConfig } from "./config.js";
 
+/*
+ * Rotation policy (Phase 12B):
+ *   Threshold : 50,000 lines (checked via fstat byte-count proxy — see note below).
+ *   Trigger   : size-based at ~10 MB (fs.statSync.size), checked once on init.
+ *   Atomicity : single fs.renameSync — no copy+truncate, so no torn-write window.
+ *   Archives  : activity.jsonl.1 (most recent) → .2 → .3 (oldest kept).
+ *               On each rotation, .2→.3, .1→.2, active→.1. .3 is deleted before
+ *               the shift to keep retention at exactly 3 generations.
+ *   Why size?  Counting lines requires reading the whole file. A 10 MB size guard
+ *               is O(1) via statSync and closely tracks the 50k-line goal
+ *               (each JSONL entry ≈ 200 bytes → 50k lines ≈ 10 MB).
+ */
+
 // Read app version at runtime from package.json in the app root.
 // Must be deferred to after app is ready because app.getAppPath() is not
 // valid before that — we call this only inside initActivityLog().
@@ -44,36 +57,33 @@ let sessionStartTs: number = 0;
 
 // ── Rolling archive ───────────────────────────────────────────────────────────
 
-// Archive activity.jsonl if it exceeds 5000 lines, then prune archives older than 7 days.
-function archiveIfNeeded(): void {
-  const logPath = activityLogPath();
+// 10 MB threshold — see rotation policy comment at top of file.
+const ROTATION_SIZE_BYTES = 10 * 1024 * 1024;
+
+// Shift numbered suffixes (.2→.3, .1→.2) then rename active log to .1.
+// Deletes .3 first so we never keep more than 3 rotated generations.
+// All renames are atomic on the same filesystem; the active log is gone
+// (renamed to .1) before any new writes resume, so no lines are lost.
+export function archiveIfNeeded(logsDir?: string): void {
+  const dir = logsDir ?? getLogsDir();
+  const logPath = path.join(dir, "activity.jsonl");
   if (!fs.existsSync(logPath)) return;
 
   try {
-    const content = fs.readFileSync(logPath, "utf-8");
-    const lineCount = content.split("\n").filter((l) => l.trim().length > 0).length;
-    if (lineCount <= 5000) return;
+    const { size } = fs.statSync(logPath);
+    if (size < ROTATION_SIZE_BYTES) return;
 
-    const dateTag = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const archivePath = path.join(getLogsDir(), `activity-${dateTag}.jsonl`);
-    fs.renameSync(logPath, archivePath);
-    console.log(`[activity-log] archived to ${archivePath} (${lineCount} lines)`);
+    // Rotate: delete .3, shift .2→.3, .1→.2, active→.1
+    const gen3 = path.join(dir, "activity.jsonl.3");
+    const gen2 = path.join(dir, "activity.jsonl.2");
+    const gen1 = path.join(dir, "activity.jsonl.1");
 
-    // Prune archives older than 7 days
-    const cutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    for (const entry of fs.readdirSync(getLogsDir())) {
-      if (/^activity-\d{4}-\d{2}-\d{2}\.jsonl$/.test(entry)) {
-        const entryPath = path.join(getLogsDir(), entry);
-        try {
-          if (fs.statSync(entryPath).mtimeMs < cutoffMs) {
-            fs.unlinkSync(entryPath);
-            console.log(`[activity-log] pruned old archive: ${entry}`);
-          }
-        } catch {
-          // Non-fatal: skip unreadable entries
-        }
-      }
-    }
+    if (fs.existsSync(gen3)) fs.unlinkSync(gen3);
+    if (fs.existsSync(gen2)) fs.renameSync(gen2, gen3);
+    if (fs.existsSync(gen1)) fs.renameSync(gen1, gen2);
+    fs.renameSync(logPath, gen1);
+
+    console.log(`[activity-log] rotated ${size} bytes → activity.jsonl.1`);
   } catch (err) {
     console.warn("[activity-log] archival error:", err);
   }

@@ -12,7 +12,8 @@
     "launch": "ELECTRON_RUN_AS_NODE= electron .",
     "dev": "concurrently \"tsc -p tsconfig.main.json --watch\" \"vite\"",
     "dist": "npm run build && electron-builder --mac --publish=never",
-    "release": "npm run build && electron-builder --mac --publish=always"
+    "release": "npm run build && electron-builder --mac --publish=always",
+    "stress:activity-log": "node scripts/stress-activity-log.js"
   },
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
