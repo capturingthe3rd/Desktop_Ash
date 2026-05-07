@@ -1,4 +1,4 @@
-import type { PetState } from "../shared/types.js";
+import type { PetState, AgentSessionType } from "../shared/types.js";
 import { tidyMessage } from "../shared/message-tidy.js";
 
 interface QueueEntry {
@@ -8,6 +8,10 @@ interface QueueEntry {
   expiresAt: number | null; // null = sticky (idle)
   pushedAt: number;
   message: string | null;  // optional completion message for speech bubble
+  // Phase 12C — session metadata for deep-link bubble clicks
+  sessionId: string | null;
+  sessionPath: string | null;
+  sessionType: AgentSessionType | null;
 }
 
 // Default TTLs per state as specified in the plan
@@ -23,10 +27,17 @@ const DEFAULT_TTL_MS: Record<PetState, number | null> = {
   waiting: 3000,
 };
 
-// Subscribers receive state, agent label, and optional message.
-// Wander manager ignores its own pushes (agent === "wander") and ignores message.
-// Renderer broadcast forwards all three to the renderer process.
-type StateChangeCallback = (state: PetState, agent: string | null, message: string | null) => void;
+// Subscribers receive state, agent label, optional message, and Phase 12C session metadata.
+// Wander manager only uses state and agent; ignores message and session fields.
+// Renderer broadcast subscriber forwards all fields to the renderer via IPC.
+type StateChangeCallback = (
+  state: PetState,
+  agent: string | null,
+  message: string | null,
+  sessionId: string | null,
+  sessionPath: string | null,
+  sessionType: AgentSessionType | null,
+) => void;
 
 export class StateQueue {
   private current: QueueEntry;
@@ -58,12 +69,15 @@ export class StateQueue {
       expiresAt: null,
       pushedAt: Date.now(),
       message: null,
+      sessionId: null,
+      sessionPath: null,
+      sessionType: null,
     };
   }
 
   push(
     state: PetState,
-    opts: { ttlMs?: number; agent?: string | null; priority?: number; message?: string | null } = {}
+    opts: { ttlMs?: number; agent?: string | null; priority?: number; message?: string | null; sessionId?: string | null; sessionPath?: string | null; sessionType?: AgentSessionType | null } = {}
   ): void {
     const priority = opts.priority ?? 0;
     const agent = opts.agent ?? null;
@@ -86,7 +100,10 @@ export class StateQueue {
       if (cleaned.length > 0) message = cleaned;
     }
 
-    this.current = { state, agent, priority, expiresAt, pushedAt: Date.now(), message };
+    const sessionId = opts.sessionId ?? null;
+    const sessionPath = opts.sessionPath ?? null;
+    const sessionType = opts.sessionType ?? null;
+    this.current = { state, agent, priority, expiresAt, pushedAt: Date.now(), message, sessionId, sessionPath, sessionType };
 
     if (this.decayTimer !== null) {
       clearTimeout(this.decayTimer);
@@ -99,20 +116,27 @@ export class StateQueue {
       }, rawTtl as number);
     }
 
-    this.notifyAll(state, agent, message);
+    this.notifyAll(state, agent, message, sessionId, sessionPath, sessionType);
     console.log(`[state-queue] → ${state} (agent=${agent ?? "anon"}, ttl=${rawTtl ?? "∞"}ms, priority=${priority}, message=${message ? `"${message.slice(0, 40)}…"` : "none"})`);
   }
 
   private decayToIdle(): void {
     this.current = this.makeIdleEntry();
     this.decayTimer = null;
-    this.notifyAll("idle", null, null);
+    this.notifyAll("idle", null, null, null, null, null);
     console.log("[state-queue] → idle (TTL expired)");
   }
 
-  private notifyAll(state: PetState, agent: string | null, message: string | null): void {
+  private notifyAll(
+    state: PetState,
+    agent: string | null,
+    message: string | null,
+    sessionId: string | null,
+    sessionPath: string | null,
+    sessionType: AgentSessionType | null,
+  ): void {
     for (const cb of this.subscribers) {
-      cb(state, agent, message);
+      cb(state, agent, message, sessionId, sessionPath, sessionType);
     }
   }
 

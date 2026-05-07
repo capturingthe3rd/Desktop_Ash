@@ -4,6 +4,7 @@ import type {
   StatePushResponse,
   StateGetResponse,
   PetState,
+  AgentSessionType,
 } from "../shared/types.js";
 import { isValidState } from "../shared/types.js";
 import type { StateQueue } from "./state-queue.js";
@@ -55,11 +56,21 @@ export function createServer(queue: StateQueue): http.Server {
           return;
         }
 
+        // Validate sessionType against the allowed union — reject anything else
+        const rawSessionType = body.sessionType;
+        const sessionType: AgentSessionType | null =
+          rawSessionType === "claude-code" || rawSessionType === "codex" || rawSessionType === "other"
+            ? rawSessionType
+            : null;
+
         queue.push(state as PetState, {
           ttlMs: typeof body.ttlMs === "number" ? body.ttlMs : undefined,
           agent: typeof body.agent === "string" ? body.agent : null,
           priority: typeof body.priority === "number" ? body.priority : 0,
           message: typeof body.message === "string" ? body.message : null,
+          sessionId: typeof body.sessionId === "string" ? body.sessionId : null,
+          sessionPath: typeof body.sessionPath === "string" ? body.sessionPath : null,
+          sessionType,
         });
 
         const current = queue.getCurrent();

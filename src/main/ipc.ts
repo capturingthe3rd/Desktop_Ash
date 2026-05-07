@@ -66,8 +66,17 @@ export function registerIpcHandlers(): void {
 }
 
 // Push a state update from the main process to the renderer.
-// Payload expanded to {state, agent, message} so renderer bubble manager can act on message.
-export function broadcastState(win: BrowserWindow, state: string, agent: string | null, message: string | null): void {
+// Phase 12C: payload includes session metadata so renderer can pass it back on bubble click
+// for deep-link routing to the specific agent session.
+export function broadcastState(
+  win: BrowserWindow,
+  state: string,
+  agent: string | null,
+  message: string | null,
+  sessionId: string | null,
+  sessionPath: string | null,
+  sessionType: string | null,
+): void {
   if (win.isDestroyed()) return;
-  win.webContents.send(IPC.STATE_UPDATE, { state, agent, message });
+  win.webContents.send(IPC.STATE_UPDATE, { state, agent, message, sessionId, sessionPath, sessionType });
 }

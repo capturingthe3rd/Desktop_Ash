@@ -30,6 +30,12 @@ export function isValidState(s: string): s is PetState {
   return VALID_STATES.includes(s as PetState);
 }
 
+// Identifies which agent type produced a state push, enabling deep-link routing on bubble click.
+// "claude-code" → open session JSONL in default editor via shell.openPath
+// "codex"       → focus Codex.app (codex:// scheme exists but only handles OAuth, not sessions)
+// "other"       → no-op (same as pre-Phase-12C Tier 1 fallback)
+export type AgentSessionType = "claude-code" | "codex" | "other";
+
 // Wire format for POST /state body
 export interface StatePushRequest {
   state: PetState;
@@ -37,6 +43,10 @@ export interface StatePushRequest {
   agent?: string;
   priority?: number;
   message?: string; // optional completion message; non-empty triggers speech bubble
+  // Phase 12C — deep-link session metadata (all optional; absent = Tier 1 fallback)
+  sessionId?: string;   // UUID for claude-code; JSONL stem for codex
+  sessionPath?: string; // absolute path to the session JSONL file
+  sessionType?: AgentSessionType;
 }
 
 // Wire format for GET /state response
@@ -61,6 +71,27 @@ export interface PetManifest {
   description: string;
   spritesheetPath: string; // relative to pet dir (raw from JSON)
   spritesheetAbsolutePath: string; // resolved at scan time for renderer ash-asset:// URLs
+}
+
+// Outbound webhook configuration (Phase 12A)
+export interface WebhookOutboundConfig {
+  enabled: boolean;
+  urls: string[];
+  bearerToken?: string;
+  eventFilter: {
+    stateChanges: boolean;
+    bubbles: boolean;
+    errors: boolean;
+  };
+}
+
+// Wire format for outbound webhook POSTs (Phase 12A)
+export interface WebhookEvent {
+  event: "state_change" | "bubble" | "error";
+  state: string;
+  agent: string | null;
+  message: string | null;
+  timestamp: number;
 }
 
 // Stored config at ~/Library/Application Support/Desktop_Ash/config.json
@@ -89,6 +120,8 @@ export interface AppConfig {
   bubbleEnabled?: boolean;      // default true
   bubbleLifetimeMs?: number;    // default 10000 (10s per bubble)
   bubbleMaxStack?: number;      // default 5 stacked bubbles
+  // Outbound webhook config (Phase 12A) — off by default
+  webhookOutbound?: WebhookOutboundConfig;
 }
 
 // Geometry data returned by BUBBLE_SIDE_INFO so renderer can pick bubble side.
@@ -124,7 +157,7 @@ export const IPC = {
   PETS_LIST: "pets:list",              // renderer → main (invoke): PetManifest[]
   PET_SELECT: "pet:select",            // renderer → main (invoke): string (petId)
   SPRITESHEET_PATH: "pet:spritesheet", // renderer → main (invoke): string (abs path)
-  BUBBLE_CLICK: "bubble:click",        // renderer → main (send): { agent: string }
+  BUBBLE_CLICK: "bubble:click",        // renderer → main (send): { agent, sessionType?, sessionPath?, sessionId? }
   // Phase 9 — settings + login item IPC
   SETTINGS_GET: "settings:get",            // renderer → main (invoke): AppConfig
   SETTINGS_SAVE: "settings:save",          // renderer → main (invoke): Partial<AppConfig>

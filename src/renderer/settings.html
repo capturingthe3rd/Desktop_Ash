@@ -414,6 +414,49 @@
       </div>
 
       <div class="section">
+        <h2>Webhooks</h2>
+        <div class="row">
+          <label for="webhook-enabled">Enable outbound webhooks</label>
+          <div class="control"><input type="checkbox" id="webhook-enabled" /></div>
+        </div>
+        <div class="row">
+          <label for="webhook-urls">URLs (one per line)</label>
+        </div>
+        <textarea
+          id="webhook-urls"
+          rows="3"
+          placeholder="https://hooks.slack.com/…"
+          style="width:100%;margin-top:4px;background:#1c1c1e;color:#e0e0e0;border:1px solid #48484a;border-radius:6px;padding:8px;font-size:12px;font-family:inherit;resize:vertical;"
+        ></textarea>
+        <div class="row" style="margin-top:8px;">
+          <label for="webhook-token">Bearer token (optional)</label>
+          <div class="control">
+            <input
+              type="password"
+              id="webhook-token"
+              placeholder="sk-…"
+              style="background:#1c1c1e;color:#e0e0e0;border:1px solid #48484a;border-radius:6px;padding:4px 8px;font-size:12px;width:180px;"
+            />
+          </div>
+        </div>
+        <div class="row" style="margin-top:4px;">
+          <label>Fire on</label>
+          <div class="control" style="gap:14px;">
+            <label style="display:flex;align-items:center;gap:6px;color:#cfcfd1;font-weight:normal;">
+              <input type="checkbox" id="wh-filter-state" style="width:auto;height:auto;appearance:auto;border-radius:3px;" /> State changes
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;color:#cfcfd1;font-weight:normal;">
+              <input type="checkbox" id="wh-filter-bubble" style="width:auto;height:auto;appearance:auto;border-radius:3px;" /> Bubbles
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;color:#cfcfd1;font-weight:normal;">
+              <input type="checkbox" id="wh-filter-error" style="width:auto;height:auto;appearance:auto;border-radius:3px;" /> Errors
+            </label>
+          </div>
+        </div>
+        <p class="note">POST JSON to each URL on the selected events. No retries — best-effort delivery.</p>
+      </div>
+
+      <div class="section">
         <h2>Startup</h2>
         <div class="row">
           <label for="login-enabled">Open at login</label>
@@ -439,6 +482,7 @@
         <div class="chip active" data-filter="state">State</div>
         <div class="chip active" data-filter="error">Errors</div>
         <div class="chip active" data-filter="session">Sessions</div>
+        <div class="chip active" data-filter="webhook">Webhooks</div>
       </div>
 
       <!-- Connected agents roster -->
