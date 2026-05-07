@@ -63,6 +63,13 @@ let animFrame = 0;
 let playsDone = 0;
 let animTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Spritesheet grid — COLS is fixed by the Codex pet contract (8 frames per row).
+// totalRows is detected at spritesheet load time from natural image height,
+// so the renderer adapts to 9-row (standard), 25-row (v2), or 26-row (v3) sheets.
+const CELL_H = 208;
+const COLS = 8;
+let totalRows = 9; // default; overwritten when spritesheet loads
+
 function stopAnimation(): void {
   if (animTimer !== null) {
     clearTimeout(animTimer);
@@ -71,8 +78,8 @@ function stopAnimation(): void {
 }
 
 function applyFrame(row: number, col: number): void {
-  const xPct = (col / 7) * 100;
-  const yPct = (row / 8) * 100;
+  const xPct = (col / (COLS - 1)) * 100;
+  const yPct = (row / (totalRows - 1)) * 100;
   petDiv.style.backgroundPosition = `${xPct}% ${yPct}%`;
 }
 
@@ -326,7 +333,28 @@ async function init(): Promise<void> {
     console.warn("[renderer] no spritesheet path available");
     return;
   }
-  petDiv.style.backgroundImage = `url("ash-asset://${spritesheetPath}")`;
+  const spritesheetUrl = `ash-asset://${spritesheetPath}`;
+
+  // Detect spritesheet row count from natural image height. Standard Codex
+  // pets are 9 rows; ash-deluxe-v2 has 25; ash-deluxe-v3 has 26. Without
+  // dynamic detection, applyFrame's row math and the background-size CSS
+  // would be wrong on any non-9-row sheet (positions and proportions break).
+  await new Promise<void>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      totalRows = Math.max(1, Math.round(img.naturalHeight / CELL_H));
+      console.log(`[renderer] spritesheet ${img.naturalWidth}×${img.naturalHeight} → ${COLS}×${totalRows} cells`);
+      resolve();
+    };
+    img.onerror = () => {
+      console.warn("[renderer] spritesheet failed to load — falling back to 9 rows");
+      resolve();
+    };
+    img.src = spritesheetUrl;
+  });
+
+  petDiv.style.backgroundImage = `url("${spritesheetUrl}")`;
+  petDiv.style.backgroundSize = `${COLS * 100}% ${totalRows * 100}%`;
 
   // Compute sprite dims from the SCALE (not window dims), so the pet element
   // is always 192*scale × 208*scale regardless of which side a bubble is on.

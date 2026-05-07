@@ -24,11 +24,12 @@
            area passes clicks through to the desktop. Drag is scoped to #pet only. */
       }
 
-      /* Sprite element — always present, sized by CSS var injected from renderer */
+      /* Sprite element — always present, sized by CSS var injected from renderer.
+         background-size is set dynamically by the renderer once it knows the
+         spritesheet's row count (standard 9, v2 25, v3 26 — all 8 cols). */
       #pet {
         position: absolute;
         background-repeat: no-repeat;
-        background-size: 800% 900%;
         image-rendering: pixelated;
         image-rendering: crisp-edges;
         -webkit-app-region: drag;
